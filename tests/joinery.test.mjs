@@ -3,12 +3,26 @@ import test from "node:test";
 
 import {
   PROPOSED_JOINERY,
+  PORT_NORMAL_REDESIGN_STUDY,
+  REDESIGN_CAPTURE_STUDY,
+  REDESIGN_CONTINUOUS_POCKET_ENVELOPE,
+  REDESIGN_HUB_ENVELOPE,
+  REDESIGN_POCKET_ENVELOPE,
+  auditAxialTenonCollisions,
   auditTenonCollisions,
+  buildRedesignHubHalfspaces,
+  buildRedesignHubVertices,
   buildV2Joinery,
   centerlineToBlankLength,
   centerlineToShoulderLength,
   derivePortFrame,
   intersectOrientedBoxes,
+  orientedBoxProjectionInterval,
+  makeAxialCentralClampObb,
+  makeAxialMemberEnvelopeObbAtRoll,
+  makeAxialTenonObb,
+  makeAxialTenonObbAtRoll,
+  makeCrossKeyObb,
   makeTenonObb,
   resolveFabricationClasses,
   tangentFaceSetback,
@@ -23,6 +37,28 @@ const closeTo = (actual, expected, tolerance = 1e-9) => {
 
 const dot = (a, b) => a.reduce((sum, value, index) => sum + value * b[index], 0);
 const magnitude = (vector) => Math.hypot(...vector);
+const add = (a, b) => a.map((value, index) => value + b[index]);
+const subtract = (a, b) => a.map((value, index) => value - b[index]);
+const scale = (vector, scalar) => vector.map((value) => value * scalar);
+
+const boxCorners = (box) => {
+  const corners = [];
+  for (const first of [-1, 1]) {
+    for (const second of [-1, 1]) {
+      for (const third of [-1, 1]) {
+        const signs = [first, second, third];
+        corners.push(box.center.map((coordinate, coordinateIndex) =>
+          coordinate + signs.reduce(
+            (sum, sign, axisIndex) =>
+              sum + sign * box.halfExtents[axisIndex] * box.axes[axisIndex][coordinateIndex],
+            0,
+          ),
+        ));
+      }
+    }
+  }
+  return corners;
+};
 
 test("derives 130 deterministic endpoint frames with opposite edge axes", () => {
   const joinery = buildV2Joinery(72);
@@ -239,6 +275,302 @@ test("finds every proposed tenon pair colliding in every 4, 5, and 6-way hub", (
   assert.equal(direct.hubs[0].collisionCount, 10);
 });
 
+test("port-normal redesign defines bounded shells, clear fixed pockets, and full shoulder support", () => {
+  const joinery = buildV2Joinery(72);
+  const shoulderSetback = PORT_NORMAL_REDESIGN_STUDY.shoulderSetback;
+  const audit = auditAxialTenonCollisions(
+    joinery.installedHubs,
+    shoulderSetback,
+    REDESIGN_POCKET_ENVELOPE,
+  );
+
+  assert.equal(shoulderSetback, 4);
+  assert.deepEqual(PORT_NORMAL_REDESIGN_STUDY.tenon, {
+    length: 1.25,
+    width: 0.75,
+    thickness: 0.5,
+  });
+  assert.equal(audit.pairCount, 270);
+  assert.equal(audit.collisionCount, 0);
+  assert.equal(audit.allPairsClear, true);
+  closeTo(audit.minimumSeparation, 1.714362874150579);
+  assert.deepEqual(
+    audit.byValence.map(({ valence, hubCount, pairsPerHub, collisionsPerHub }) => ({
+      valence,
+      hubCount,
+      pairsPerHub,
+      collisionsPerHub,
+    })),
+    [
+      { valence: 4, hubCount: 10, pairsPerHub: 6, collisionsPerHub: 0 },
+      { valence: 5, hubCount: 6, pairsPerHub: 10, collisionsPerHub: 0 },
+      { valence: 6, hubCount: 10, pairsPerHub: 15, collisionsPerHub: 0 },
+    ],
+  );
+
+  let minimumSplitPenetration = Number.POSITIVE_INFINITY;
+  let minimumOtherFaceClearance = Number.POSITIVE_INFINITY;
+  let minimumShoulderOtherFaceClearance = Number.POSITIVE_INFINITY;
+  let minimumH4BottomRim = Number.POSITIVE_INFINITY;
+  const footprintByValence = new Map();
+
+  for (const hub of joinery.installedHubs) {
+    const halfspaces = buildRedesignHubHalfspaces(hub);
+    const vertices = buildRedesignHubVertices(hub).map(({ position }) => position);
+    assert.equal(vertices.length, hub.valence === 6 ? 12 : 10);
+    assert.ok(vertices.every((vertex) =>
+      halfspaces.every(({ normal, offset }) => dot(vertex, normal) <= offset + 1e-8)));
+
+    if (!footprintByValence.has(hub.valence)) {
+      let maximumPlanarDiameter = 0;
+      for (let first = 0; first < vertices.length; first += 1) {
+        for (let second = first + 1; second < vertices.length; second += 1) {
+          const delta = subtract(vertices[first], vertices[second]);
+          const radial = dot(delta, hub.outwardNormal);
+          maximumPlanarDiameter = Math.max(
+            maximumPlanarDiameter,
+            Math.sqrt(Math.max(0, dot(delta, delta) - radial * radial)),
+          );
+        }
+      }
+      footprintByValence.set(hub.valence, maximumPlanarDiameter);
+    }
+
+    const pockets = hub.ports.map((port) => makeAxialTenonObb(
+      port,
+      shoulderSetback,
+      REDESIGN_POCKET_ENVELOPE,
+      "fixed-pocket",
+    ));
+    for (let portIndex = 0; portIndex < hub.ports.length; portIndex += 1) {
+      const radial = orientedBoxProjectionInterval(
+        pockets[portIndex],
+        hub.outwardNormal,
+        hub.position,
+      );
+      assert.ok(radial[0] >= -REDESIGN_HUB_ENVELOPE.radialInboard - 1e-9);
+      assert.ok(radial[1] <= REDESIGN_HUB_ENVELOPE.radialOutboard + 1e-9);
+      assert.ok(radial[0] < REDESIGN_HUB_ENVELOPE.radialSplit);
+      assert.ok(radial[1] > REDESIGN_HUB_ENVELOPE.radialSplit);
+      minimumSplitPenetration = Math.min(
+        minimumSplitPenetration,
+        REDESIGN_HUB_ENVELOPE.radialSplit - radial[0],
+        radial[1] - REDESIGN_HUB_ENVELOPE.radialSplit,
+      );
+
+      for (const corner of boxCorners(pockets[portIndex])) {
+        const relative = subtract(corner, hub.position);
+        hub.ports.forEach((facePort, faceIndex) => {
+          if (faceIndex !== portIndex) {
+            minimumOtherFaceClearance = Math.min(
+              minimumOtherFaceClearance,
+              shoulderSetback - dot(relative, facePort.axis),
+            );
+          }
+        });
+        if (hub.valence === 4) {
+          assert.ok(relative[1] >= -REDESIGN_HUB_ENVELOPE.h4ClosureBelowDatum - 1e-9);
+        }
+      }
+
+      const port = hub.ports[portIndex];
+      for (const radialSign of [-1, 1]) {
+        for (const tangentialSign of [-1, 1]) {
+          const shoulderCorner = add(
+            scale(port.axis, shoulderSetback),
+            add(
+              scale(port.radialRollAxis, radialSign * 0.75),
+              scale(port.tangentialRollAxis, tangentialSign * 0.75),
+            ),
+          );
+          const q = dot(shoulderCorner, hub.outwardNormal);
+          assert.ok(q >= -REDESIGN_HUB_ENVELOPE.radialInboard - 1e-9);
+          assert.ok(q <= REDESIGN_HUB_ENVELOPE.radialOutboard + 1e-9);
+          hub.ports.forEach((facePort, faceIndex) => {
+            if (faceIndex !== portIndex) {
+              minimumShoulderOtherFaceClearance = Math.min(
+                minimumShoulderOtherFaceClearance,
+                shoulderSetback - dot(shoulderCorner, facePort.axis),
+              );
+            }
+          });
+          if (hub.valence === 4) {
+            minimumH4BottomRim = Math.min(
+              minimumH4BottomRim,
+              shoulderCorner[1] + REDESIGN_HUB_ENVELOPE.h4ClosureBelowDatum,
+            );
+          }
+        }
+      }
+    }
+  }
+
+  assert.ok(minimumSplitPenetration >= 0.3479797804);
+  assert.ok(minimumOtherFaceClearance >= 1.3494392676);
+  closeTo(minimumShoulderOtherFaceClearance, 1.0111180062094594);
+  closeTo(minimumH4BottomRim, 0.75);
+  closeTo(footprintByValence.get(4), 9.69363176310171);
+  closeTo(footprintByValence.get(5), 10.110635498895814);
+  closeTo(footprintByValence.get(6), 10.270509831248425);
+
+  for (const edge of joinery.geometry.edges) {
+    const endpointPorts = joinery.ports.filter(({ edgeId }) => edgeId === edge.id);
+    assert.equal(endpointPorts.length, 2);
+    closeTo(Math.abs(dot(endpointPorts[0].radialRollAxis, endpointPorts[1].radialRollAxis)), 1);
+  }
+});
+
+test("port-normal envelopes clear a sampled roll sweep and conservative continuous-roll bounds", () => {
+  const joinery = buildV2Joinery(72);
+  const shoulderSetback = PORT_NORMAL_REDESIGN_STUDY.shoulderSetback;
+  let pocketPairTests = 0;
+  let pocketCollisions = 0;
+  let minimumPocketSeparation = Number.POSITIVE_INFINITY;
+  let memberPairTests = 0;
+  let memberCollisions = 0;
+  let minimumMemberSeparation = Number.POSITIVE_INFINITY;
+
+  for (let degrees = 0; degrees <= 90; degrees += 1) {
+    const roll = degrees * Math.PI / 180;
+    for (const hub of joinery.installedHubs) {
+      const pockets = hub.ports.map((port) => makeAxialTenonObbAtRoll(
+        port,
+        shoulderSetback,
+        REDESIGN_POCKET_ENVELOPE,
+        roll,
+        `${degrees}-degree-pocket`,
+      ));
+      const members = hub.ports.map((port) => makeAxialMemberEnvelopeObbAtRoll(
+        port,
+        shoulderSetback,
+        6,
+        1.5,
+        roll,
+        `${degrees}-degree-member`,
+      ));
+      for (let first = 0; first < pockets.length; first += 1) {
+        for (let second = first + 1; second < pockets.length; second += 1) {
+          const pocketResult = intersectOrientedBoxes(pockets[first], pockets[second]);
+          pocketPairTests += 1;
+          if (pocketResult.intersects) pocketCollisions += 1;
+          else minimumPocketSeparation = Math.min(minimumPocketSeparation, pocketResult.separation);
+          const memberResult = intersectOrientedBoxes(members[first], members[second]);
+          memberPairTests += 1;
+          if (memberResult.intersects) memberCollisions += 1;
+          else minimumMemberSeparation = Math.min(minimumMemberSeparation, memberResult.separation);
+        }
+      }
+    }
+  }
+
+  assert.equal(pocketPairTests, 24_570);
+  assert.equal(memberPairTests, 24_570);
+  assert.equal(pocketCollisions, 0);
+  assert.equal(memberCollisions, 0);
+  closeTo(minimumPocketSeparation, 1.3966370358711595);
+  closeTo(minimumMemberSeparation, 1.537727207024575);
+
+  let continuousPocketPairs = 0;
+  let continuousPocketCollisions = 0;
+  let continuousPocketMinimum = Number.POSITIVE_INFINITY;
+  let continuousMemberPairs = 0;
+  let continuousMemberCollisions = 0;
+  let continuousMemberMinimum = Number.POSITIVE_INFINITY;
+  for (const hub of joinery.installedHubs) {
+    const pockets = hub.ports.map((port) => makeAxialTenonObbAtRoll(
+      port,
+      shoulderSetback,
+      REDESIGN_CONTINUOUS_POCKET_ENVELOPE,
+      0,
+      "continuous-pocket-bound",
+    ));
+    const members = hub.ports.map((port) => makeAxialMemberEnvelopeObbAtRoll(
+      port,
+      shoulderSetback,
+      6,
+      1.5 * Math.SQRT2,
+      0,
+      "continuous-member-bound",
+    ));
+    for (let first = 0; first < pockets.length; first += 1) {
+      for (let second = first + 1; second < pockets.length; second += 1) {
+        const pocketResult = intersectOrientedBoxes(pockets[first], pockets[second]);
+        continuousPocketPairs += 1;
+        if (pocketResult.intersects) continuousPocketCollisions += 1;
+        else continuousPocketMinimum = Math.min(continuousPocketMinimum, pocketResult.separation);
+        const memberResult = intersectOrientedBoxes(members[first], members[second]);
+        continuousMemberPairs += 1;
+        if (memberResult.intersects) continuousMemberCollisions += 1;
+        else continuousMemberMinimum = Math.min(continuousMemberMinimum, memberResult.separation);
+      }
+    }
+  }
+  assert.equal(continuousPocketPairs, 270);
+  assert.equal(continuousPocketCollisions, 0);
+  closeTo(continuousPocketMinimum, 1.380330594889732);
+  assert.equal(continuousMemberPairs, 270);
+  assert.equal(continuousMemberCollisions, 0);
+  closeTo(continuousMemberMinimum, 1.4082572258959356);
+});
+
+test("two-shell capture-study reliefs and center bore clear all non-own pockets", () => {
+  const joinery = buildV2Joinery(72);
+  const shoulderSetback = PORT_NORMAL_REDESIGN_STUDY.shoulderSetback;
+  let minimumReliefToPocket = Number.POSITIVE_INFINITY;
+  let minimumReliefToRelief = Number.POSITIVE_INFINITY;
+  let minimumBoreToPocket = Number.POSITIVE_INFINITY;
+  let minimumBoreToRelief = Number.POSITIVE_INFINITY;
+
+  for (const hub of joinery.installedHubs) {
+    const pockets = hub.ports.map((port) => makeAxialTenonObb(
+      port,
+      shoulderSetback,
+      REDESIGN_POCKET_ENVELOPE,
+      "capture-pocket",
+    ));
+    const reliefs = hub.ports.map((port) => makeCrossKeyObb(port, shoulderSetback, true));
+    const bore = makeAxialCentralClampObb(
+      hub,
+      -REDESIGN_HUB_ENVELOPE.radialInboard,
+      REDESIGN_HUB_ENVELOPE.radialOutboard,
+      REDESIGN_CAPTURE_STUDY.clampBoreSection,
+      "capture-bore",
+    );
+
+    for (let first = 0; first < reliefs.length; first += 1) {
+      assert.equal(intersectOrientedBoxes(reliefs[first], pockets[first]).intersects, true);
+      const keyRadial = orientedBoxProjectionInterval(reliefs[first], hub.outwardNormal, hub.position);
+      assert.ok(keyRadial[0] < REDESIGN_CAPTURE_STUDY.shellSplit);
+      assert.ok(keyRadial[1] > REDESIGN_CAPTURE_STUDY.shellSplit);
+      for (let second = 0; second < pockets.length; second += 1) {
+        if (first === second) continue;
+        const result = intersectOrientedBoxes(reliefs[first], pockets[second]);
+        assert.equal(result.intersects, false);
+        minimumReliefToPocket = Math.min(minimumReliefToPocket, result.separation);
+      }
+      for (let second = first + 1; second < reliefs.length; second += 1) {
+        const result = intersectOrientedBoxes(reliefs[first], reliefs[second]);
+        assert.equal(result.intersects, false);
+        minimumReliefToRelief = Math.min(minimumReliefToRelief, result.separation);
+      }
+      const boreToRelief = intersectOrientedBoxes(bore, reliefs[first]);
+      assert.equal(boreToRelief.intersects, false);
+      minimumBoreToRelief = Math.min(minimumBoreToRelief, boreToRelief.separation);
+    }
+    for (const pocket of pockets) {
+      const result = intersectOrientedBoxes(bore, pocket);
+      assert.equal(result.intersects, false);
+      minimumBoreToPocket = Math.min(minimumBoreToPocket, result.separation);
+    }
+  }
+
+  closeTo(minimumReliefToPocket, 2.221133183531644);
+  closeTo(minimumReliefToRelief, 2.2831317760435668);
+  closeTo(minimumBoreToPocket, 1.7376390384477332);
+  closeTo(minimumBoreToRelief, 2.168412480127734);
+  assert.equal(REDESIGN_CAPTURE_STUDY.shellSplit, -1);
+});
+
 test("uses a complete separating-axis test for rotated rectangular boxes", () => {
   const axes = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
   const first = { id: "A", center: [0, 0, 0], axes, halfExtents: [1, 1, 1] };
@@ -254,8 +586,8 @@ test("uses a complete separating-axis test for rotated rectangular boxes", () =>
   const tangential = makeTenonObb(port, 1.5, PROPOSED_JOINERY.tenon, "width-tangential");
   const radial = makeTenonObb(port, 1.5, PROPOSED_JOINERY.tenon, "width-radial");
   assert.deepEqual(tangential.halfExtents, radial.halfExtents);
-  assert.deepEqual(tangential.axes[1], radial.axes[2]);
-  assert.deepEqual(tangential.axes[2], radial.axes[1]);
+  radial.axes[1].forEach((coordinate, index) => closeTo(coordinate, tangential.axes[2][index]));
+  radial.axes[2].forEach((coordinate, index) => closeTo(coordinate, -tangential.axes[1][index]));
 });
 
 test("rejects invalid radii, dimensions, frames, setbacks, and boxes", () => {

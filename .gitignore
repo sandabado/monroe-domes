@@ -6,3 +6,4 @@ node_modules
 *.tsbuildinfo
 .playwright-mcp
 jantsz-desktop-audit.png
+output/pdf/rendered/

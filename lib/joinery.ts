@@ -170,6 +170,71 @@ export interface JoineryConfiguration {
   readonly tenon: TenonDimensions;
 }
 
+export interface AxialJoineryConfiguration {
+  readonly shoulderSetback: number;
+  readonly tenon: TenonDimensions;
+}
+
+export interface AxialCollisionAudit {
+  readonly shoulderSetback: number;
+  readonly envelope: TenonDimensions;
+  readonly hubs: readonly HubCollisionResult[];
+  readonly byValence: readonly CollisionValenceSummary[];
+  readonly pairCount: number;
+  readonly collisionCount: number;
+  readonly minimumSeparation: number;
+  readonly allPairsClear: boolean;
+}
+
+export interface HubEnvelopeStudy {
+  readonly faceDatum: "port-normal";
+  readonly shoulderSetback: number;
+  readonly radialThickness: number;
+  readonly radialOutboard: number;
+  readonly radialInboard: number;
+  readonly radialSplit: number;
+  readonly innerShellThickness: number;
+  readonly outerShellThickness: number;
+  readonly h4ClosureBelowDatum: number;
+  readonly construction: string;
+}
+
+export interface CaptureHardwareStudy {
+  readonly shellSplit: number;
+  readonly crossKeyDepth: number;
+  readonly crossKeyLength: number;
+  readonly crossKeyDiameter: number;
+  readonly crossKeyReliefLength: number;
+  readonly crossKeyReliefSection: number;
+  readonly clampSpindleSection: number;
+  readonly clampBoreSection: number;
+  readonly clampAxisLength: number;
+  readonly clampCenterRadial: number;
+}
+
+export type RedesignHalfspaceKind =
+  | "port-face"
+  | "radial-outboard"
+  | "radial-inboard"
+  | "h4-bottom";
+
+/** Hub-center-relative halfspace: normal dot localPoint <= offset. */
+export interface RedesignHubHalfspace {
+  readonly id: string;
+  readonly kind: RedesignHalfspaceKind;
+  readonly normal: Vector3Tuple;
+  readonly offset: number;
+  readonly portIndex?: number;
+  readonly portId?: string;
+}
+
+export interface RedesignHubVertex {
+  /** Hub-center-relative Cartesian position. */
+  readonly position: Vector3Tuple;
+  /** Every boundary plane containing this vertex within the solve tolerance. */
+  readonly halfspaceIds: readonly string[];
+}
+
 export interface V2JoineryModel {
   readonly radius: number;
   readonly geometry: V2Hemisphere;
@@ -189,6 +254,63 @@ export const PROPOSED_JOINERY: JoineryConfiguration = Object.freeze({
     width: 1.25,
     thickness: 0.5,
   }),
+});
+
+/**
+ * Spatial-clearance redesign only. The dimensions below define a reproducible
+ * solid-envelope study; they do not establish strength, retention, durability,
+ * tolerances, or a fabrication release.
+ */
+export const REDESIGN_JOINERY_STUDY: AxialJoineryConfiguration = Object.freeze({
+  shoulderSetback: 4,
+  tenon: Object.freeze({
+    length: 1.25,
+    width: 0.75,
+    thickness: 0.5,
+  }),
+});
+
+/** Explicit alias used by consumers that distinguish this study from the tangent audit. */
+export const PORT_NORMAL_REDESIGN_STUDY = REDESIGN_JOINERY_STUDY;
+
+/** Slightly oversized digital pocket used to test clearance, not a fit spec. */
+export const REDESIGN_POCKET_ENVELOPE: TenonDimensions = Object.freeze({
+  length: 1.3,
+  width: 0.78,
+  thickness: 0.53,
+});
+
+/** Axis-aligned square enclosing the pocket at every possible roll angle. */
+export const REDESIGN_CONTINUOUS_POCKET_ENVELOPE: TenonDimensions = Object.freeze({
+  length: REDESIGN_POCKET_ENVELOPE.length,
+  width: Math.hypot(REDESIGN_POCKET_ENVELOPE.width, REDESIGN_POCKET_ENVELOPE.thickness),
+  thickness: Math.hypot(REDESIGN_POCKET_ENVELOPE.width, REDESIGN_POCKET_ENVELOPE.thickness),
+});
+
+export const REDESIGN_HUB_ENVELOPE: HubEnvelopeStudy = Object.freeze({
+  faceDatum: "port-normal",
+  shoulderSetback: REDESIGN_JOINERY_STUDY.shoulderSetback,
+  radialThickness: 3,
+  radialOutboard: 0.5,
+  radialInboard: 2.5,
+  radialSplit: -1,
+  innerShellThickness: 1.5,
+  outerShellThickness: 1.5,
+  h4ClosureBelowDatum: 1.5,
+  construction: "Two-shell hardwood capture-body study; stock build-up, closure, and adhesive unselected",
+});
+
+export const REDESIGN_CAPTURE_STUDY: CaptureHardwareStudy = Object.freeze({
+  shellSplit: -1,
+  crossKeyDepth: 0.625,
+  crossKeyLength: 1.25,
+  crossKeyDiameter: 0.25,
+  crossKeyReliefLength: 1.28125,
+  crossKeyReliefSection: 0.28125,
+  clampSpindleSection: 1,
+  clampBoreSection: 1.03125,
+  clampAxisLength: 3,
+  clampCenterRadial: -1,
 });
 
 const RADIANS_TO_DEGREES = 180 / Math.PI;
@@ -678,18 +800,421 @@ export function makeTenonObb(
   if (orientation !== "width-tangential" && orientation !== "width-radial") {
     throw new RangeError(`Unknown tenon roll orientation: ${String(orientation)}.`);
   }
+  const rollRadians = orientation === "width-tangential" ? 0 : Math.PI / 2;
+  return makeTenonObbAtRoll(port, apothem, tenon, rollRadians, orientation);
+}
+
+/**
+ * Port-normal tenon or pocket. The shoulder plane is perpendicular to the
+ * member axis at one common axial setback, and the wide axis is fixed to the
+ * installed radial roll datum.
+ */
+export function makeAxialTenonObb(
+  port: InstalledPort,
+  shoulderSetback: number,
+  dimensions: TenonDimensions,
+  idSuffix = "axial-tenon",
+): OrientedBox {
+  return makeAxialTenonObbAtRoll(
+    port,
+    shoulderSetback,
+    dimensions,
+    Math.PI / 2,
+    idSuffix,
+  );
+}
+
+/** Port-normal tenon or pocket at an explicit roll used by robustness audits. */
+export function makeAxialTenonObbAtRoll(
+  port: InstalledPort,
+  shoulderSetback: number,
+  dimensions: TenonDimensions,
+  rollRadians: number,
+  idSuffix = "axial-tenon-roll",
+): OrientedBox {
+  assertPositiveFinite(shoulderSetback, "Shoulder setback");
+  validateTenon(dimensions);
+  if (dimensions.length >= shoulderSetback) {
+    throw new RangeError("Axial tenon length must be less than the shoulder setback.");
+  }
+  if (!Number.isFinite(rollRadians)) throw new RangeError("Axial tenon roll must be finite.");
+  const cosine = Math.cos(rollRadians);
+  const sine = Math.sin(rollRadians);
+  const widthAxis = normalize(add(
+    scale(port.tangentialRollAxis, cosine),
+    scale(port.radialRollAxis, sine),
+  ), "Axial tenon width roll axis");
+  const thicknessAxis = normalize(add(
+    scale(port.radialRollAxis, cosine),
+    scale(port.tangentialRollAxis, -sine),
+  ), "Axial tenon thickness roll axis");
+  return {
+    id: `${port.id}:${idSuffix}`,
+    center: add(
+      port.hubPosition,
+      scale(port.axis, shoulderSetback - dimensions.length / 2),
+    ),
+    axes: [port.axis, widthAxis, thicknessAxis],
+    halfExtents: [dimensions.length / 2, dimensions.width / 2, dimensions.thickness / 2],
+  };
+}
+
+/** Creates a tenon/pocket box at any roll angle about the member axis. */
+export function makeTenonObbAtRoll(
+  port: InstalledPort,
+  apothem: number,
+  tenon: TenonDimensions,
+  rollRadians: number,
+  idSuffix = "continuous-roll",
+): OrientedBox {
+  assertPositiveFinite(apothem, "Hub apothem");
+  validateTenon(tenon);
+  if (!Number.isFinite(rollRadians)) throw new RangeError("Tenon roll must be finite.");
   const setback = tangentFaceSetback(apothem, port.axis, port.outwardNormal);
   const center = add(port.hubPosition, scale(port.axis, setback - tenon.length / 2));
-  const widthAxis =
-    orientation === "width-tangential" ? port.tangentialRollAxis : port.radialRollAxis;
-  const thicknessAxis =
-    orientation === "width-tangential" ? port.radialRollAxis : port.tangentialRollAxis;
+  const cosine = Math.cos(rollRadians);
+  const sine = Math.sin(rollRadians);
+  const widthAxis = normalize(add(
+    scale(port.tangentialRollAxis, cosine),
+    scale(port.radialRollAxis, sine),
+  ), "Tenon width roll axis");
+  const thicknessAxis = normalize(add(
+    scale(port.radialRollAxis, cosine),
+    scale(port.tangentialRollAxis, -sine),
+  ), "Tenon thickness roll axis");
   return {
-    id: `${port.id}:${orientation}`,
+    id: `${port.id}:${idSuffix}`,
     center,
     axes: [port.axis, widthAxis, thicknessAxis],
     halfExtents: [tenon.length / 2, tenon.width / 2, tenon.thickness / 2],
   };
+}
+
+/** Full-section member envelope beginning at the tangent face and extending outward. */
+export function makeMemberEnvelopeObb(
+  port: InstalledPort,
+  apothem: number,
+  length: number,
+  section: number,
+  rollRadians = 0,
+): OrientedBox {
+  assertPositiveFinite(apothem, "Hub apothem");
+  assertPositiveFinite(length, "Member envelope length");
+  assertPositiveFinite(section, "Member envelope section");
+  if (!Number.isFinite(rollRadians)) throw new RangeError("Member roll must be finite.");
+  const setback = tangentFaceSetback(apothem, port.axis, port.outwardNormal);
+  const cosine = Math.cos(rollRadians);
+  const sine = Math.sin(rollRadians);
+  const widthAxis = normalize(add(
+    scale(port.tangentialRollAxis, cosine),
+    scale(port.radialRollAxis, sine),
+  ), "Member width roll axis");
+  const thicknessAxis = normalize(add(
+    scale(port.radialRollAxis, cosine),
+    scale(port.tangentialRollAxis, -sine),
+  ), "Member thickness roll axis");
+  return {
+    id: `${port.id}:member-envelope`,
+    center: add(port.hubPosition, scale(port.axis, setback + length / 2)),
+    axes: [port.axis, widthAxis, thicknessAxis],
+    halfExtents: [length / 2, section / 2, section / 2],
+  };
+}
+
+/** Full-section member envelope beginning at a port-normal shoulder. */
+export function makeAxialMemberEnvelopeObb(
+  port: InstalledPort,
+  shoulderSetback: number,
+  length: number,
+  section: number,
+  idSuffix = "axial-member-envelope",
+): OrientedBox {
+  return makeAxialMemberEnvelopeObbAtRoll(
+    port,
+    shoulderSetback,
+    length,
+    section,
+    Math.PI / 2,
+    idSuffix,
+  );
+}
+
+/** Full-section port-normal member envelope at an explicit roll. */
+export function makeAxialMemberEnvelopeObbAtRoll(
+  port: InstalledPort,
+  shoulderSetback: number,
+  length: number,
+  section: number,
+  rollRadians: number,
+  idSuffix = "axial-member-envelope-roll",
+): OrientedBox {
+  assertPositiveFinite(shoulderSetback, "Shoulder setback");
+  assertPositiveFinite(length, "Member envelope length");
+  assertPositiveFinite(section, "Member envelope section");
+  if (!Number.isFinite(rollRadians)) throw new RangeError("Axial member roll must be finite.");
+  const cosine = Math.cos(rollRadians);
+  const sine = Math.sin(rollRadians);
+  const widthAxis = normalize(add(
+    scale(port.tangentialRollAxis, cosine),
+    scale(port.radialRollAxis, sine),
+  ), "Axial member width roll axis");
+  const thicknessAxis = normalize(add(
+    scale(port.radialRollAxis, cosine),
+    scale(port.tangentialRollAxis, -sine),
+  ), "Axial member thickness roll axis");
+  return {
+    id: `${port.id}:${idSuffix}`,
+    center: add(port.hubPosition, scale(port.axis, shoulderSetback + length / 2)),
+    axes: [port.axis, widthAxis, thicknessAxis],
+    halfExtents: [length / 2, section / 2, section / 2],
+  };
+}
+
+/** Conservative box around a captured radial key or its oversized relief. */
+export function makeAxialCrossKeyObb(
+  port: InstalledPort,
+  shoulderSetback: number,
+  axialDepth: number,
+  length: number,
+  section: number,
+  idSuffix = "axial-cross-key",
+): OrientedBox {
+  assertPositiveFinite(shoulderSetback, "Shoulder setback");
+  assertPositiveFinite(axialDepth, "Cross-key axial depth");
+  assertPositiveFinite(length, "Cross-key length");
+  assertPositiveFinite(section, "Cross-key section");
+  if (axialDepth >= shoulderSetback) {
+    throw new RangeError("Cross-key axial depth must be less than the shoulder setback.");
+  }
+  return {
+    id: `${port.id}:${idSuffix}`,
+    center: add(port.hubPosition, scale(port.axis, shoulderSetback - axialDepth)),
+    axes: [port.radialRollAxis, port.axis, port.tangentialRollAxis],
+    halfExtents: [length / 2, section / 2, section / 2],
+  };
+}
+
+/** Conservative box around the proposed cylindrical radial cross-key. */
+export function makeCrossKeyObb(
+  port: InstalledPort,
+  shoulderSetback: number,
+  relief = false,
+): OrientedBox {
+  const length = relief
+    ? REDESIGN_CAPTURE_STUDY.crossKeyReliefLength
+    : REDESIGN_CAPTURE_STUDY.crossKeyLength;
+  const section = relief
+    ? REDESIGN_CAPTURE_STUDY.crossKeyReliefSection
+    : REDESIGN_CAPTURE_STUDY.crossKeyDiameter;
+  return makeAxialCrossKeyObb(
+    port,
+    shoulderSetback,
+    REDESIGN_CAPTURE_STUDY.crossKeyDepth,
+    length,
+    section,
+    relief ? "cross-key-relief" : "cross-key",
+  );
+}
+
+/** Conservative square spindle or bore along the hub radial axis. */
+export function makeAxialCentralClampObb(
+  hub: InstalledHub,
+  radialMinimum: number,
+  radialMaximum: number,
+  section: number,
+  idSuffix = "axial-central-clamp",
+): OrientedBox {
+  if (!Number.isFinite(radialMinimum) || !Number.isFinite(radialMaximum)) {
+    throw new RangeError("Clamp radial limits must be finite.");
+  }
+  if (radialMinimum >= radialMaximum) {
+    throw new RangeError("Clamp radial minimum must be less than its maximum.");
+  }
+  assertPositiveFinite(section, "Clamp section");
+  return {
+    id: `${hub.id}:${idSuffix}`,
+    center: add(hub.position, scale(hub.outwardNormal, (radialMinimum + radialMaximum) / 2)),
+    axes: [hub.outwardNormal, hub.tangentX, hub.tangentY],
+    halfExtents: [(radialMaximum - radialMinimum) / 2, section / 2, section / 2],
+  };
+}
+
+/** Backwards-compatible configured spindle/bore constructor for the redesign study. */
+export function makeClampSpindleObb(
+  hub: InstalledHub,
+  bore = false,
+): OrientedBox {
+  const section = bore
+    ? REDESIGN_CAPTURE_STUDY.clampBoreSection
+    : REDESIGN_CAPTURE_STUDY.clampSpindleSection;
+  return makeAxialCentralClampObb(
+    hub,
+    -REDESIGN_HUB_ENVELOPE.radialInboard,
+    REDESIGN_HUB_ENVELOPE.radialOutboard,
+    section,
+    bore ? "clamp-bore" : "clamp-spindle",
+  );
+}
+
+/** Exact port-normal body planes, expressed relative to the hub center. */
+export function buildRedesignHubHalfspaces(
+  hub: InstalledHub,
+  envelope: HubEnvelopeStudy = REDESIGN_HUB_ENVELOPE,
+  shoulderSetback = envelope.shoulderSetback,
+): RedesignHubHalfspace[] {
+  assertPositiveFinite(shoulderSetback, "Shoulder setback");
+  assertPositiveFinite(envelope.radialInboard, "Hub radial inboard extent");
+  assertPositiveFinite(envelope.radialOutboard, "Hub radial outboard extent");
+  assertPositiveFinite(envelope.h4ClosureBelowDatum, "H4 bottom offset");
+  if (
+    Math.abs(
+      envelope.radialThickness - (envelope.radialInboard + envelope.radialOutboard),
+    ) > FRAME_TOLERANCE
+  ) {
+    throw new RangeError("Hub radial thickness must equal its inboard plus outboard extents.");
+  }
+
+  const halfspaces: RedesignHubHalfspace[] = hub.ports.map((port, portIndex) => ({
+    id: `${hub.id}:port-${portIndex + 1}`,
+    kind: "port-face",
+    normal: port.axis,
+    offset: shoulderSetback,
+    portIndex,
+    portId: port.id,
+  }));
+  halfspaces.push(
+    {
+      id: `${hub.id}:radial-outboard`,
+      kind: "radial-outboard",
+      normal: hub.outwardNormal,
+      offset: envelope.radialOutboard,
+    },
+    {
+      id: `${hub.id}:radial-inboard`,
+      kind: "radial-inboard",
+      normal: scale(hub.outwardNormal, -1),
+      offset: envelope.radialInboard,
+    },
+  );
+  if (hub.valence === 4) {
+    halfspaces.push({
+      id: `${hub.id}:h4-bottom`,
+      kind: "h4-bottom",
+      normal: [0, -1, 0],
+      offset: envelope.h4ClosureBelowDatum,
+    });
+  }
+  return halfspaces;
+}
+
+function solveHalfspaceTriple(
+  first: RedesignHubHalfspace,
+  second: RedesignHubHalfspace,
+  third: RedesignHubHalfspace,
+): Vector3Tuple | undefined {
+  const secondCrossThird = cross(second.normal, third.normal);
+  const determinant = dot(first.normal, secondCrossThird);
+  if (Math.abs(determinant) <= FRAME_TOLERANCE) return undefined;
+  const numerator = add(
+    add(
+      scale(secondCrossThird, first.offset),
+      scale(cross(third.normal, first.normal), second.offset),
+    ),
+    scale(cross(first.normal, second.normal), third.offset),
+  );
+  return scale(numerator, 1 / determinant);
+}
+
+/** Enumerates the unique vertices of a bounded convex halfspace intersection. */
+export function intersectHalfspaceTriples(
+  halfspaces: readonly RedesignHubHalfspace[],
+  tolerance = 1e-9,
+): RedesignHubVertex[] {
+  if (halfspaces.length < 4) {
+    throw new RangeError("At least four halfspaces are required to enclose a hub body.");
+  }
+  assertPositiveFinite(tolerance, "Halfspace solve tolerance");
+  for (const halfspace of halfspaces) {
+    assertVector(halfspace.normal, `${halfspace.id} normal`);
+    if (Math.abs(magnitude(halfspace.normal) - 1) > FRAME_TOLERANCE) {
+      throw new RangeError(`${halfspace.id} normal must be unit length.`);
+    }
+    if (!Number.isFinite(halfspace.offset)) {
+      throw new RangeError(`${halfspace.id} offset must be finite.`);
+    }
+  }
+
+  const positions: Vector3Tuple[] = [];
+  for (let first = 0; first < halfspaces.length; first += 1) {
+    for (let second = first + 1; second < halfspaces.length; second += 1) {
+      for (let third = second + 1; third < halfspaces.length; third += 1) {
+        const point = solveHalfspaceTriple(
+          halfspaces[first],
+          halfspaces[second],
+          halfspaces[third],
+        );
+        if (!point) continue;
+        if (
+          halfspaces.some(
+            (halfspace) => dot(halfspace.normal, point) - halfspace.offset > tolerance,
+          )
+        ) {
+          continue;
+        }
+        if (
+          positions.some(
+            (existing) => magnitude(subtract(existing, point)) <= tolerance * 10,
+          )
+        ) {
+          continue;
+        }
+        positions.push(point);
+      }
+    }
+  }
+
+  if (positions.length === 0) {
+    throw new Error("Halfspaces do not produce a bounded hub body with enumerable vertices.");
+  }
+  return positions
+    .sort(
+      (left, right) =>
+        left[0] - right[0] || left[1] - right[1] || left[2] - right[2],
+    )
+    .map((position) => ({
+      position,
+      halfspaceIds: halfspaces
+        .filter(
+          (halfspace) =>
+            Math.abs(dot(halfspace.normal, position) - halfspace.offset) <= tolerance * 10,
+        )
+        .map(({ id }) => id),
+    }));
+}
+
+export function buildRedesignHubVertices(
+  hub: InstalledHub,
+  envelope: HubEnvelopeStudy = REDESIGN_HUB_ENVELOPE,
+  shoulderSetback = envelope.shoulderSetback,
+): RedesignHubVertex[] {
+  return intersectHalfspaceTriples(
+    buildRedesignHubHalfspaces(hub, envelope, shoulderSetback),
+  );
+}
+
+/** Projection interval relative to an origin, used for slab containment audits. */
+export function orientedBoxProjectionInterval(
+  box: OrientedBox,
+  axis: Vector3Tuple,
+  origin: Vector3Tuple = [0, 0, 0],
+): readonly [number, number] {
+  validateObb(box);
+  assertVector(axis, "Projection axis");
+  assertVector(origin, "Projection origin");
+  const unitAxis = normalize(axis, "Projection axis");
+  const centerProjection = dot(subtract(box.center, origin), unitAxis);
+  const radius = projectionRadius(box, unitAxis);
+  return [centerProjection - radius, centerProjection + radius];
 }
 
 function validateObb(box: OrientedBox): void {
@@ -824,6 +1349,82 @@ export function auditTenonCollisions(
     hubs,
     byValence,
     allPairsCollide: hubs.every(({ allPairsCollide }) => allPairsCollide),
+  };
+}
+
+/** Exact fixed-roll collision audit for port-normal tenon or pocket envelopes. */
+export function auditAxialTenonCollisions(
+  installedHubs: readonly InstalledHub[],
+  shoulderSetback: number,
+  envelope: TenonDimensions,
+): AxialCollisionAudit {
+  assertPositiveFinite(shoulderSetback, "Shoulder setback");
+  validateTenon(envelope);
+  if (envelope.length >= shoulderSetback) {
+    throw new RangeError("Axial envelope length must be less than the shoulder setback.");
+  }
+  if (installedHubs.length === 0) throw new RangeError("At least one installed hub is required.");
+
+  const hubs: HubCollisionResult[] = installedHubs.map((hub) => {
+    const boxes = hub.ports.map((port) =>
+      makeAxialTenonObb(port, shoulderSetback, envelope, "axial-collision-audit"));
+    const pairs: TenonPairCollision[] = [];
+    for (let first = 0; first < boxes.length; first += 1) {
+      for (let second = first + 1; second < boxes.length; second += 1) {
+        pairs.push({
+          firstPortId: hub.ports[first].id,
+          secondPortId: hub.ports[second].id,
+          ...intersectOrientedBoxes(boxes[first], boxes[second]),
+        });
+      }
+    }
+    const collisionCount = pairs.filter(({ intersects }) => intersects).length;
+    return {
+      hubId: hub.id,
+      valence: hub.valence,
+      pairCount: pairs.length,
+      collisionCount,
+      allPairsCollide: collisionCount === pairs.length,
+      pairs,
+    };
+  });
+
+  const byValence: CollisionValenceSummary[] = ([4, 5, 6] as const)
+    .filter((valence) => hubs.some((hub) => hub.valence === valence))
+    .map((valence) => {
+      const classHubs = hubs.filter((hub) => hub.valence === valence);
+      const pairCounts = new Set(classHubs.map(({ pairCount }) => pairCount));
+      const collisionCounts = new Set(classHubs.map(({ collisionCount }) => collisionCount));
+      if (pairCounts.size !== 1 || collisionCounts.size !== 1) {
+        throw new Error(`Installed axial H${valence} results are not orbit-congruent.`);
+      }
+      const pairsPerHub = classHubs[0]?.pairCount ?? 0;
+      const collisionsPerHub = classHubs[0]?.collisionCount ?? 0;
+      return {
+        valence,
+        hubCount: classHubs.length,
+        pairsPerHub,
+        collisionsPerHub,
+        totalPairCount: classHubs.reduce((total, hub) => total + hub.pairCount, 0),
+        totalCollisionCount: classHubs.reduce((total, hub) => total + hub.collisionCount, 0),
+        allPairsCollide: classHubs.every(({ allPairsCollide }) => allPairsCollide),
+      };
+    });
+  const pairs = hubs.flatMap(({ pairs: hubPairs }) => hubPairs);
+  const collisionCount = pairs.filter(({ intersects }) => intersects).length;
+  const clearSeparations = pairs
+    .filter(({ intersects }) => !intersects)
+    .map(({ separation }) => separation);
+  return {
+    shoulderSetback,
+    envelope: { ...envelope },
+    hubs,
+    byValence,
+    pairCount: pairs.length,
+    collisionCount,
+    minimumSeparation:
+      clearSeparations.length > 0 ? Math.min(...clearSeparations) : 0,
+    allPairsClear: collisionCount === 0,
   };
 }
 
