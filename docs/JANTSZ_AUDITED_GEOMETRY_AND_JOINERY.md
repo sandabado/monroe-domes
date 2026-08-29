@@ -778,26 +778,62 @@ begin. Finished cut dimensions or printable fabrication drawings additionally
 require documented connection review, structural/load-path review, accepted
 prototype/test evidence, and an explicit fabrication release.
 
-## 10. Acoustic platform brief correction
+## 10. Wood panels, entrance, and platform spatial studies
 
-The separate 132-inch platform is an **unengineered visual concept**. Its regular
-66-inch-radius decagon edge is:
+The canonical shell contains 40 exact planar node-center face references in two
+families:
+
+- 30 P1 isosceles faces: 39.350380, 39.350380, and 44.498447 inches;
+  44.498447-inch base by 32.456501-inch planar altitude; 722.131952 square
+  inches each.
+- 10 P2 equilateral faces: 44.498447 inches on every side;
+  38.536786-inch planar altitude; 857.413562 square inches each.
+- Total gross node-center face area: 30,238.094167 square inches, or
+  209.986765 square feet, with no waste allowance.
+
+These are mathematical face references, not finished panel cuts or a purchase
+quantity. Thickness, timber underlap or reveal, corner relief at hubs, edge
+bevels, attachment, gaskets, drainage, moisture allowance, grain direction,
+fire behavior, weathering, and acoustic performance are unresolved.
+
+The optional entrance study opens one contiguous six-face patch: F006, F007,
+F012, F021, F022, and F023. It hides member references L-03, L-06, S-11, S-12,
+L-16, L-17, and L-26 and hides node V007 only in that presentation. The
+surrounding boundary members L-01, S-06, S-07, S-21, and S-23 remain visible.
+A schematic raked wood cassette shows a **36-inch clear width by 58-inch clear
+rise**. This is a crouch entrance, not standing-height access. The 65-member,
+26-node, 40-face canonical reference and its exports remain unchanged.
+
+The entrance cassette does not establish a replacement load path, member or
+joint size, reinforcement, door, threshold, weather seal, drainage, egress,
+guard, foundation connection, or acoustic behavior. It must not be treated as a
+fabrication detail.
+
+The separate 192-inch corner-to-corner platform is an **unengineered spatial
+concept**. Its regular 96-inch-radius decagon edge is:
 
 \[
-2(66)\sin(18\text{ degrees})=40.790244\text{ inches}
+2(96)\sin(18\text{ degrees})=59.331263\text{ inches}
 \]
 
-It is not 44.5 inches and does not share the 72-inch-radius dome base vertices.
-The CAD separates 24 deck-board envelopes, 10 rim pieces, 10 radial joists, one
-center study block, and 10 independent supports into their own optional layers.
-That display does not establish a joist schedule, deck capacity, connection,
-foundation, guard, egress, or shared dome load path.
+The corresponding platform and dome vertices differ in radius by 24 inches.
+That does **not** create a uniform 24-inch apron: the perpendicular separation
+between corresponding flats is only
+\(24\cos(18\text{ degrees})=22.825356\) inches. The CAD separates 35 deck-board
+envelopes, 10 rim pieces, 10 primary radial frame lines, one center study block,
+and 10 supports located on the dome base-node axes. The 36-inch approach aligns
+with the optional entrance cassette. The platform retains an all-wood connection
+goal, but no platform joint dimensions are released. The display does not
+establish a joist schedule, deck capacity, connection, foundation, guard,
+egress, or shared dome load path.
 
-The former 110 Hz cavity resonance, 180 Hz panel mode, 8 Hz isolation frequency,
-80-250 Hz boost, tuned-column, instrument-top, and parabolic-reflector statements
-are withdrawn. The cavity boundary and opening, pad stiffness and compression,
-orthotropic deck behavior, damping, supports, loads, and measurement conditions
-were not defined. A geodesic hemisphere is not a parabolic reflector.
+The former 37, 55, 73, 110, and 180 Hz claims, isolation frequency, frequency
+boost, tuned-column, instrument-top, sounding-board, and parabolic-reflector
+statements are withdrawn. The audited dome has no defined sealed cladding or
+acoustic boundary. A solid deck does not make the dome air and open under-deck
+space one Helmholtz chamber. Deck orthotropy, damping, connections, supports,
+loads, openings, leakage, absorption, and measurement conditions are undefined.
+A geodesic hemisphere is not a parabolic reflector.
 
 The verified dome model does not validate the platform. Keep the platform
 structurally independent unless and until a coordinated structural design says

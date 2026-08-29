@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  ContactShadows,
   Edges,
   Html,
   Line,
@@ -9,7 +10,7 @@ import {
   PerspectiveCamera,
 } from "@react-three/drei";
 import { Canvas, ThreeEvent, useThree } from "@react-three/fiber";
-import { Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { memo, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import { ConvexGeometry } from "three/examples/jsm/geometries/ConvexGeometry.js";
 import {
@@ -19,31 +20,28 @@ import {
   makeAxialCrossKeyObb,
   makeAxialMemberEnvelopeObb,
   makeAxialTenonObb,
-  makeTenonObb,
   PORT_NORMAL_REDESIGN_STUDY,
   REDESIGN_CAPTURE_STUDY,
   REDESIGN_HUB_ENVELOPE,
   REDESIGN_POCKET_ENVELOPE,
-  tangentFaceSetback,
   type InstalledHub,
   type OrientedBox,
   type RedesignHubHalfspace,
-  type TenonRollOrientation,
 } from "@/lib/joinery";
 import {
   DOME_MODEL,
+  ENTRANCE_STUDY,
   JOINERY_MODEL,
   MATERIAL,
   MEMBERS,
   PLATFORM_CONCEPT,
-  REJECTED_HUB,
+  WOOD_PANEL_CONCEPT,
   type DomeMember,
 } from "@/lib/spec";
 
-export type ViewMode = "iso" | "plan" | "front" | "right" | "joinery";
+export type ViewMode = "iso" | "plan" | "front" | "right" | "parts" | "platform" | "site" | "joinery";
 export type MemberFilter = "all" | "S" | "L";
 export type AuditHubValence = 4 | 5 | 6;
-export type JointStudyMode = "original" | "redesign";
 
 export type LayerState = {
   timber: boolean;
@@ -69,8 +67,9 @@ type SceneProps = {
   zoom: number;
   resetNonce: number;
   auditHubValence: AuditHubValence;
-  auditRoll: TenonRollOrientation;
-  jointStudyMode: JointStudyMode;
+  selectionEnabled: boolean;
+  mobileLayout: boolean;
+  onInteractionStart: () => void;
   onSelectMember: (pieceId: string | null) => void;
 };
 
@@ -84,21 +83,69 @@ const BEAM_GEOMETRY = new THREE.BoxGeometry(
 const HIT_GEOMETRY = new THREE.BoxGeometry(5.5, 1, 5.5);
 const vertexById = new Map(DOME_MODEL.vertices.map((vertex) => [vertex.id, vertex]));
 
-function makePanelGeometry() {
+function requiredVertex(vertexId: string) {
+  const vertex = vertexById.get(vertexId);
+  if (!vertex) throw new Error(`Unable to resolve dome vertex ${vertexId}.`);
+  return vertex;
+}
+
+const ORDERED_BASE_VERTICES = Object.freeze(DOME_MODEL.baseVertexIds.map(requiredVertex));
+const ENTRY_BASE_START = ORDERED_BASE_VERTICES[0];
+const ENTRY_BASE_END = ORDERED_BASE_VERTICES[1];
+const ENTRY_BASE_MEMBER = MEMBERS.find((member) =>
+  (member.start === ENTRY_BASE_START.id && member.end === ENTRY_BASE_END.id)
+  || (member.start === ENTRY_BASE_END.id && member.end === ENTRY_BASE_START.id),
+);
+if (!ENTRY_BASE_MEMBER || !DOME_MODEL.baseEdgeIds.includes(ENTRY_BASE_MEMBER.id)) {
+  throw new Error("Unable to resolve the canonical platform entrance base edge.");
+}
+const ENTRY_HIDDEN_FACE_IDS = new Set<string>(ENTRANCE_STUDY.hiddenFaceIds);
+const ENTRY_HIDDEN_MEMBER_IDS = new Set<string>(ENTRANCE_STUDY.hiddenMemberPieceIds);
+const ENTRY_HIDDEN_NODE_IDS = new Set<string>(ENTRANCE_STUDY.hiddenNodeIds);
+const ENTRY_DIRECTION = new THREE.Vector3(
+  ENTRY_BASE_START.position[0] + ENTRY_BASE_END.position[0],
+  0,
+  ENTRY_BASE_START.position[2] + ENTRY_BASE_END.position[2],
+).normalize();
+
+const WOOD_PANEL_INWARD_OFFSET_INCHES = WOOD_PANEL_CONCEPT.visualInwardOffsetInches;
+const WOOD_PANEL_COLORS = ["#a36337", "#8d4f28", "#b2733f", "#98582e", "#b97a46"] as const;
+
+function makePanelGeometry(excludedFaceIds: ReadonlySet<string> = new Set()) {
   const positions: number[] = [];
-  for (const face of DOME_MODEL.faces) {
-    for (const vertexId of face.vertices) {
+  const colors: number[] = [];
+  for (const [faceIndex, face] of DOME_MODEL.faces.entries()) {
+    if (excludedFaceIds.has(face.id)) continue;
+    const points = face.vertices.map((vertexId) => {
       const vertex = vertexById.get(vertexId);
-      if (vertex) positions.push(...vertex.position);
+      if (!vertex) throw new Error(`Unable to resolve panel vertex ${vertexId}.`);
+      return new THREE.Vector3(...vertex.position);
+    });
+    const outward = new THREE.Vector3()
+      .crossVectors(
+        points[1].clone().sub(points[0]),
+        points[2].clone().sub(points[0]),
+      )
+      .normalize();
+    const centroid = points[0].clone().add(points[1]).add(points[2]).multiplyScalar(1 / 3);
+    if (outward.dot(centroid) < 0) outward.negate();
+    const inwardOffset = outward.multiplyScalar(-WOOD_PANEL_INWARD_OFFSET_INCHES);
+    const panelColor = new THREE.Color(WOOD_PANEL_COLORS[faceIndex % WOOD_PANEL_COLORS.length]);
+
+    for (const point of points) {
+      positions.push(...point.add(inwardOffset).toArray());
+      colors.push(panelColor.r, panelColor.g, panelColor.b);
     }
   }
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setAttribute("color", new THREE.Float32BufferAttribute(colors, 3));
   geometry.computeVertexNormals();
   return geometry;
 }
 
 const PANEL_GEOMETRY = makePanelGeometry();
+const ENTRY_PANEL_GEOMETRY = makePanelGeometry(ENTRY_HIDDEN_FACE_IDS);
 
 type OrientedBoxTransform = {
   position: THREE.Vector3;
@@ -317,26 +364,6 @@ function PortNormalTwoShellBody({ hub, alignment }: { hub: InstalledHub; alignme
   );
 }
 
-function makeMemberStub(port: InstalledHub["ports"][number], tangentApothem: number): OrientedBox {
-  const setback = tangentFaceSetback(
-    tangentApothem,
-    port.axis,
-    port.outwardNormal,
-  );
-  const length = 2.35;
-  const centerDistance = setback + length / 2;
-  return {
-    id: `${port.id}:member-stub`,
-    center: [
-      port.hubPosition[0] + port.axis[0] * centerDistance,
-      port.hubPosition[1] + port.axis[1] * centerDistance,
-      port.hubPosition[2] + port.axis[2] * centerDistance,
-    ],
-    axes: [port.axis, port.tangentialRollAxis, port.radialRollAxis],
-    halfExtents: [length / 2, MATERIAL.modeledSectionInches / 2, MATERIAL.modeledSectionInches / 2],
-  };
-}
-
 function memberTransform(member: DomeMember, explode: number) {
   const start = vertexById.get(member.start);
   const end = vertexById.get(member.end);
@@ -358,6 +385,7 @@ function TimberMember({
   muted,
   explode,
   labels,
+  selectionEnabled,
   onSelect,
 }: {
   member: DomeMember;
@@ -366,13 +394,14 @@ function TimberMember({
   muted: boolean;
   explode: number;
   labels: boolean;
+  selectionEnabled: boolean;
   onSelect: (pieceId: string) => void;
 }) {
   const [hovered, setHovered] = useState(false);
   const transform = useMemo(() => memberTransform(member, explode), [member, explode]);
   const opacity = selected ? 1 : muted ? 0.075 : hovered ? 1 : 0.94;
   const color = selected ? "#ffd37f" : member.type === "S" ? "#d9a965" : "#b98246";
-  const interactive = !muted || selected;
+  const interactive = selectionEnabled && (!muted || selected);
 
   const select = (event: ThreeEvent<MouseEvent>) => {
     event.stopPropagation();
@@ -388,7 +417,6 @@ function TimberMember({
             scale={[1, transform.length, 1]}
             castShadow={!muted}
             receiveShadow
-            dispose={null}
             onClick={interactive ? select : undefined}
             onPointerOver={interactive ? (event) => { event.stopPropagation(); setHovered(true); } : undefined}
             onPointerOut={interactive ? () => setHovered(false) : undefined}
@@ -409,12 +437,11 @@ function TimberMember({
             <mesh
               geometry={HIT_GEOMETRY}
               scale={[1, transform.length, 1]}
-              dispose={null}
               onClick={select}
               onPointerOver={(event) => { event.stopPropagation(); setHovered(true); }}
               onPointerOut={() => setHovered(false)}
             >
-              <meshBasicMaterial transparent opacity={0} depthWrite={false} />
+              <meshBasicMaterial visible={false} />
             </mesh>
           ) : null}
         </>
@@ -491,6 +518,119 @@ function DimensionLayer() {
 }
 
 const PLATFORM_FORWARD = new THREE.Vector3(0, 0, 1);
+const PLATFORM_FRAME_CENTER_Y = PLATFORM_CONCEPT.clearBelowFrameInches + PLATFORM_CONCEPT.frameDepthInches / 2;
+const PLATFORM_DECK_CENTER_Y = PLATFORM_CONCEPT.deckTopInches - PLATFORM_CONCEPT.deckThicknessInches / 2;
+const PLATFORM_RIM_VERTICES = Object.freeze(ORDERED_BASE_VERTICES.map((vertex) => {
+  const direction = new THREE.Vector3(vertex.position[0], 0, vertex.position[2]).normalize();
+  return [
+    direction.x * PLATFORM_CONCEPT.radiusInches,
+    PLATFORM_FRAME_CENTER_Y,
+    direction.z * PLATFORM_CONCEPT.radiusInches,
+  ] as [number, number, number];
+}));
+const PLATFORM_SUPPORT_VERTICES = Object.freeze(ORDERED_BASE_VERTICES.map((vertex) => [
+  vertex.position[0],
+  PLATFORM_CONCEPT.clearBelowFrameInches / 2,
+  vertex.position[2],
+] as [number, number, number]));
+const PLATFORM_ENTRY_QUATERNION = new THREE.Quaternion().setFromUnitVectors(PLATFORM_FORWARD, ENTRY_DIRECTION);
+const ENTRY_TANGENT = new THREE.Vector3(ENTRY_DIRECTION.z, 0, -ENTRY_DIRECTION.x);
+const ENTRY_DOME_EDGE_APOTHEM = new THREE.Vector3(
+  (ENTRY_BASE_START.position[0] + ENTRY_BASE_END.position[0]) / 2,
+  0,
+  (ENTRY_BASE_START.position[2] + ENTRY_BASE_END.position[2]) / 2,
+).length();
+const ENTRY_PATCH_TOP_START = requiredVertex("V002");
+const ENTRY_PATCH_TOP_END = requiredVertex("V003");
+const ENTRY_PATCH_TOP_APOTHEM = new THREE.Vector3(
+  (ENTRY_PATCH_TOP_START.position[0] + ENTRY_PATCH_TOP_END.position[0]) / 2,
+  0,
+  (ENTRY_PATCH_TOP_START.position[2] + ENTRY_PATCH_TOP_END.position[2]) / 2,
+).length();
+const ENTRY_PLATFORM_EDGE_APOTHEM = PLATFORM_CONCEPT.radiusInches * Math.cos(Math.PI / 10);
+const ENTRY_WALKWAY_LENGTH = ENTRY_PLATFORM_EDGE_APOTHEM - ENTRY_DOME_EDGE_APOTHEM;
+const PLATFORM_CAMERA_TARGET = Object.freeze([
+  ENTRY_DIRECTION.x * 1.25,
+  4.5,
+  ENTRY_DIRECTION.z * 1.25,
+] as [number, number, number]);
+
+function entrySurfaceDepth(y: number): number {
+  const ratio = y / ENTRANCE_STUDY.sourcePatchRiseInches;
+  return ENTRY_DOME_EDGE_APOTHEM + (ENTRY_PATCH_TOP_APOTHEM - ENTRY_DOME_EDGE_APOTHEM) * ratio;
+}
+
+function entryLocalVertex(vertexId: string): THREE.Vector3 {
+  const vertex = requiredVertex(vertexId);
+  const point = new THREE.Vector3(...vertex.position);
+  return new THREE.Vector3(point.dot(ENTRY_TANGENT), point.y, point.dot(ENTRY_DIRECTION));
+}
+
+function makeEntranceCassetteGeometry(): THREE.BufferGeometry {
+  const positions: number[] = [];
+  const halfOuterWidth = ENTRANCE_STUDY.outerWidthInches / 2;
+  const inset = 0.72;
+  const addTriangle = (first: THREE.Vector3, second: THREE.Vector3, third: THREE.Vector3) => {
+    for (const point of [first, second, third]) positions.push(point.x, point.y, point.z - inset);
+  };
+  const addCheek = (bottomId: string, middleId: string, topId: string, side: -1 | 1) => {
+    const bottom = entryLocalVertex(bottomId);
+    const middle = entryLocalVertex(middleId);
+    const top = entryLocalVertex(topId);
+    const frameBottom = new THREE.Vector3(side * halfOuterWidth, 0, entrySurfaceDepth(0));
+    const frameMiddle = new THREE.Vector3(side * halfOuterWidth, middle.y, entrySurfaceDepth(middle.y));
+    const frameTop = new THREE.Vector3(side * halfOuterWidth, ENTRANCE_STUDY.outerHeightInches, entrySurfaceDepth(ENTRANCE_STUDY.outerHeightInches));
+    addTriangle(bottom, middle, frameBottom);
+    addTriangle(middle, frameMiddle, frameBottom);
+    addTriangle(middle, top, frameMiddle);
+    addTriangle(top, frameTop, frameMiddle);
+  };
+
+  addCheek("V018", "V013", "V003", -1);
+  addCheek("V017", "V012", "V002", 1);
+  const topLeft = entryLocalVertex("V003");
+  const topRight = entryLocalVertex("V002");
+  const frameTopLeft = new THREE.Vector3(-halfOuterWidth, ENTRANCE_STUDY.outerHeightInches, entrySurfaceDepth(ENTRANCE_STUDY.outerHeightInches));
+  const frameTopRight = new THREE.Vector3(halfOuterWidth, ENTRANCE_STUDY.outerHeightInches, entrySurfaceDepth(ENTRANCE_STUDY.outerHeightInches));
+  addTriangle(topLeft, topRight, frameTopLeft);
+  addTriangle(topRight, frameTopRight, frameTopLeft);
+
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+  geometry.computeVertexNormals();
+  return geometry;
+}
+
+const ENTRY_CASSETTE_GEOMETRY = makeEntranceCassetteGeometry();
+
+function horizontalDecagonSpan(z: number): readonly [minimumX: number, maximumX: number] {
+  const intersections: number[] = [];
+  for (let index = 0; index < PLATFORM_RIM_VERTICES.length; index += 1) {
+    const start = PLATFORM_RIM_VERTICES[index];
+    const end = PLATFORM_RIM_VERTICES[(index + 1) % PLATFORM_RIM_VERTICES.length];
+    const minimumZ = Math.min(start[2], end[2]);
+    const maximumZ = Math.max(start[2], end[2]);
+    const deltaZ = end[2] - start[2];
+    if (z < minimumZ - 1e-9 || z > maximumZ + 1e-9 || Math.abs(deltaZ) < 1e-9) continue;
+    const ratio = (z - start[2]) / deltaZ;
+    if (ratio >= -1e-9 && ratio <= 1 + 1e-9) {
+      intersections.push(start[0] + (end[0] - start[0]) * ratio);
+    }
+  }
+  if (intersections.length < 2) return [0, 0];
+  return [Math.min(...intersections), Math.max(...intersections)];
+}
+
+const PLATFORM_DECK_BOARDS = Object.freeze(Array.from({ length: PLATFORM_CONCEPT.deckBoardCount }, (_, index) => {
+  const z = (index - (PLATFORM_CONCEPT.deckBoardCount - 1) / 2) * PLATFORM_CONCEPT.deckBoardPitchInches;
+  const [minimumX, maximumX] = horizontalDecagonSpan(z);
+  return Object.freeze({
+    id: `P-D${String(index + 1).padStart(2, "0")}`,
+    z,
+    x: (minimumX + maximumX) / 2,
+    length: maximumX - minimumX,
+  });
+}));
 
 function PlatformBeam({
   id,
@@ -523,10 +663,52 @@ function PlatformBeam({
     <group position={transform.position} quaternion={transform.quaternion}>
       <mesh castShadow receiveShadow>
         <boxGeometry args={[width, depth, transform.length]} />
-        <meshStandardMaterial color={color} roughness={0.78} metalness={0.01} />
+        <meshStandardMaterial color={color} roughness={0.78} metalness={0} />
         <Edges color="#e8cda4" threshold={14} />
       </mesh>
       {labels ? <Html center position={[0, depth * 0.8, 0]} className="model-label platform-label"><span aria-hidden="true">{id}</span></Html> : null}
+    </group>
+  );
+}
+
+function EntrancePortal({ labels }: { labels: boolean }) {
+  const halfClearWidth = ENTRANCE_STUDY.clearWidthInches / 2;
+  const jambCenterX = halfClearWidth + ENTRANCE_STUDY.jambWidthInches / 2;
+  const jambBottomY = ENTRANCE_STUDY.jambWidthInches / 2;
+  const lintelCenterY = ENTRANCE_STUDY.clearRiseInches + ENTRANCE_STUDY.lintelDepthInches / 2;
+  const halfOuterWidth = ENTRANCE_STUDY.outerWidthInches / 2;
+
+  return (
+    <group quaternion={PLATFORM_ENTRY_QUATERNION}>
+      <mesh geometry={ENTRY_CASSETTE_GEOMETRY} receiveShadow renderOrder={0}>
+        <meshStandardMaterial color="#71401f" roughness={0.84} metalness={0} side={THREE.DoubleSide} />
+      </mesh>
+      {[-1, 1].map((side) => (
+        <PlatformBeam
+          key={`ENTRY-JAMB-${side}`}
+          id={`ENTRY-JAMB-${side < 0 ? "L" : "R"}`}
+          start={[side * jambCenterX, jambBottomY, entrySurfaceDepth(jambBottomY)]}
+          end={[side * jambCenterX, lintelCenterY, entrySurfaceDepth(lintelCenterY)]}
+          width={ENTRANCE_STUDY.jambWidthInches}
+          depth={ENTRANCE_STUDY.jambWidthInches}
+          color="#d29a58"
+          labels={false}
+        />
+      ))}
+      <PlatformBeam
+        id="ENTRY-LINTEL"
+        start={[-halfOuterWidth, lintelCenterY, entrySurfaceDepth(lintelCenterY)]}
+        end={[halfOuterWidth, lintelCenterY, entrySurfaceDepth(lintelCenterY)]}
+        width={ENTRANCE_STUDY.jambWidthInches}
+        depth={ENTRANCE_STUDY.lintelDepthInches}
+        color="#d9a561"
+        labels={false}
+      />
+      {labels ? (
+        <Html center position={[0, 31, entrySurfaceDepth(31) + 4.5]} className="platform-concept-label entry-concept-label">
+          <span aria-hidden="true">ENTRANCE STUDY · 36 IN CLEAR × 58 IN RISE · REINFORCEMENT OPEN</span>
+        </Html>
+      ) : null}
     </group>
   );
 }
@@ -542,25 +724,16 @@ function PlatformConcept({
   supports: boolean;
   labels: boolean;
 }) {
-  const radius = PLATFORM_CONCEPT.radiusInches;
-  const angleOffset = Math.PI / 10;
-  const rimVertices = Array.from({ length: 10 }, (_, index) => {
-    const angle = angleOffset + index * Math.PI / 5;
-    return [radius * Math.cos(angle), 14.75, radius * Math.sin(angle)] as [number, number, number];
-  });
-  const deckBoards = Array.from({ length: PLATFORM_CONCEPT.deckBoardCount }, (_, index) => {
-    const z = (index - (PLATFORM_CONCEPT.deckBoardCount - 1) / 2) * 5.5;
-    const halfLength = Math.sqrt(Math.max(0, radius * radius - z * z));
-    return { id: `P-D${String(index + 1).padStart(2, "0")}`, z, length: halfLength * 2 };
-  });
+  const entryRise = PLATFORM_CONCEPT.deckTopInches / PLATFORM_CONCEPT.entryStepCount;
+  const entryRun = PLATFORM_CONCEPT.entryStepCount * PLATFORM_CONCEPT.entryTreadDepthInches;
 
   return (
     <group>
-      {deck ? deckBoards.map((board) => (
-        <group key={board.id} position={[0, 18.25, board.z]}>
+      {deck ? PLATFORM_DECK_BOARDS.map((board) => (
+        <group key={board.id} position={[board.x, PLATFORM_DECK_CENTER_Y, board.z]}>
           <mesh castShadow receiveShadow>
-            <boxGeometry args={[board.length, PLATFORM_CONCEPT.deckThicknessInches, 5.35]} />
-            <meshStandardMaterial color="#bd8750" roughness={0.76} metalness={0.01} />
+            <boxGeometry args={[board.length, PLATFORM_CONCEPT.deckThicknessInches, PLATFORM_CONCEPT.deckBoardFaceWidthInches]} />
+            <meshStandardMaterial color="#bd8750" roughness={0.76} metalness={0} />
             <Edges color="#e8bd85" threshold={16} />
           </mesh>
           {labels ? <Html center position={[0, 1.4, 0]} className="model-label platform-label"><span aria-hidden="true">{board.id}</span></Html> : null}
@@ -569,28 +742,28 @@ function PlatformConcept({
 
       {frame ? (
         <>
-          {rimVertices.map((vertex, index) => (
+          {PLATFORM_RIM_VERTICES.map((vertex, index) => (
             <PlatformBeam
               key={`P-R${index + 1}`}
               id={`P-R${String(index + 1).padStart(2, "0")}`}
               start={vertex}
-              end={rimVertices[(index + 1) % rimVertices.length]}
+              end={PLATFORM_RIM_VERTICES[(index + 1) % PLATFORM_RIM_VERTICES.length]}
               width={1.5}
               depth={PLATFORM_CONCEPT.frameDepthInches}
               color="#83562f"
               labels={labels}
             />
           ))}
-          {rimVertices.map((vertex, index) => {
-            const angle = angleOffset + index * Math.PI / 5;
+          {PLATFORM_RIM_VERTICES.map((vertex, index) => {
+            const direction = new THREE.Vector3(vertex[0], 0, vertex[2]).normalize();
             const startRadius = 4.75;
-            const endRadius = radius - 1.25;
+            const endRadius = PLATFORM_CONCEPT.radiusInches - 1.25;
             return (
               <PlatformBeam
                 key={`P-J${index + 1}`}
                 id={`P-J${String(index + 1).padStart(2, "0")}`}
-                start={[startRadius * Math.cos(angle), 14.75, startRadius * Math.sin(angle)]}
-                end={[endRadius * Math.cos(angle), 14.75, endRadius * Math.sin(angle)]}
+                start={[startRadius * direction.x, PLATFORM_FRAME_CENTER_Y, startRadius * direction.z]}
+                end={[endRadius * direction.x, PLATFORM_FRAME_CENTER_Y, endRadius * direction.z]}
                 width={1.5}
                 depth={PLATFORM_CONCEPT.frameDepthInches}
                 color="#97663a"
@@ -598,17 +771,17 @@ function PlatformConcept({
               />
             );
           })}
-          <mesh position={[0, 14.75, 0]} castShadow receiveShadow>
+          <mesh position={[0, PLATFORM_FRAME_CENTER_Y, 0]} castShadow receiveShadow>
             <cylinderGeometry args={[4.5, 4.5, PLATFORM_CONCEPT.frameDepthInches, 10]} />
-            <meshStandardMaterial color="#674327" roughness={0.74} />
+            <meshStandardMaterial color="#674327" roughness={0.74} metalness={0} />
             <Edges color="#d9b27c" threshold={12} />
           </mesh>
           {labels ? <Html center position={[0, 19, 0]} className="model-label platform-label"><span aria-hidden="true">P-H01</span></Html> : null}
         </>
       ) : null}
 
-      {supports ? rimVertices.map((vertex, index) => (
-        <group key={`P-S${index + 1}`} position={[vertex[0], PLATFORM_CONCEPT.clearBelowFrameInches / 2, vertex[2]]}>
+      {supports ? PLATFORM_SUPPORT_VERTICES.map((vertex, index) => (
+        <group key={`P-S${index + 1}`} position={vertex}>
           <mesh castShadow receiveShadow>
             <boxGeometry args={[3.5, PLATFORM_CONCEPT.clearBelowFrameInches, 3.5]} />
             <meshStandardMaterial color="#76502f" roughness={0.82} />
@@ -618,116 +791,49 @@ function PlatformConcept({
         </group>
       )) : null}
 
-      {(deck || frame || supports) ? (
+      {deck ? (
+        <group quaternion={PLATFORM_ENTRY_QUATERNION}>
+          <mesh
+            position={[0, PLATFORM_CONCEPT.deckTopInches + 0.125, (ENTRY_DOME_EDGE_APOTHEM + ENTRY_PLATFORM_EDGE_APOTHEM) / 2]}
+            castShadow
+            receiveShadow
+          >
+            <boxGeometry args={[PLATFORM_CONCEPT.entryWidthInches, 0.25, ENTRY_WALKWAY_LENGTH]} />
+            <meshStandardMaterial color="#d39a58" roughness={0.74} metalness={0} />
+            <Edges color="#ffe0ac" threshold={14} />
+          </mesh>
+          {Array.from({ length: PLATFORM_CONCEPT.entryStepCount }, (_, index) => {
+            const treadTop = entryRise * (index + 1);
+            const z = ENTRY_PLATFORM_EDGE_APOTHEM + (PLATFORM_CONCEPT.entryStepCount - index - 0.5) * PLATFORM_CONCEPT.entryTreadDepthInches;
+            return (
+              <mesh key={`P-E${index + 1}`} position={[0, treadTop - PLATFORM_CONCEPT.deckThicknessInches / 2, z]} castShadow receiveShadow>
+                <boxGeometry args={[PLATFORM_CONCEPT.entryWidthInches, PLATFORM_CONCEPT.deckThicknessInches, PLATFORM_CONCEPT.entryTreadDepthInches]} />
+                <meshStandardMaterial color="#c58e52" roughness={0.78} metalness={0} />
+                <Edges color="#f3d19c" threshold={14} />
+              </mesh>
+            );
+          })}
+          {[-1, 1].map((side) => (
+            <PlatformBeam
+              key={`P-ES${side}`}
+              id={`P-ES${side < 0 ? "L" : "R"}`}
+              start={[side * (PLATFORM_CONCEPT.entryWidthInches / 2 - 3), entryRise / 2, ENTRY_PLATFORM_EDGE_APOTHEM + entryRun - PLATFORM_CONCEPT.entryTreadDepthInches / 2]}
+              end={[side * (PLATFORM_CONCEPT.entryWidthInches / 2 - 3), PLATFORM_CONCEPT.deckTopInches - 2.25, ENTRY_PLATFORM_EDGE_APOTHEM + PLATFORM_CONCEPT.entryTreadDepthInches / 2]}
+              width={1.5}
+              depth={3.5}
+              color="#7f512d"
+              labels={false}
+            />
+          ))}
+          {labels ? <Html center position={[0, PLATFORM_CONCEPT.deckTopInches + 4.5, ENTRY_PLATFORM_EDGE_APOTHEM + entryRun / 2]} className="platform-concept-label entry-concept-label"><span aria-hidden="true">36 IN APPROACH · 36 × 58 IN CROUCH ENTRY · LOAD PATH REDESIGN REQUIRED</span></Html> : null}
+        </group>
+      ) : null}
+
+      {(deck || frame || supports) && labels ? (
         <Html center position={[0, 23.5, 0]} className="platform-concept-label">
-          <span aria-hidden="true">PLATFORM CONCEPT · UNENGINEERED · NO ACOUSTIC CLAIM</span>
+          <span aria-hidden="true">PLATFORM SPATIAL CONCEPT · STRUCTURE + ACOUSTICS UNEVALUATED</span>
         </Html>
       ) : null}
-    </group>
-  );
-}
-
-function OriginalJoineryAssembly({
-  valence,
-  orientation,
-}: {
-  valence: AuditHubValence;
-  orientation: TenonRollOrientation;
-}) {
-  const hub = useMemo(
-    () => JOINERY_MODEL.installedHubs.find((candidate) => candidate.valence === valence),
-    [valence],
-  );
-  const audit = useMemo(
-    () => JOINERY_MODEL.collisionAudits.find((candidate) => candidate.orientation === orientation),
-    [orientation],
-  );
-  if (!hub || !audit) return null;
-
-  const alignment = detailAlignment(hub);
-  const tenons = hub.ports.map((port) => makeTenonObb(
-    port,
-    audit.apothem,
-    audit.tenon,
-    orientation,
-  ));
-  const memberStubs = hub.ports.map((port) => makeMemberStub(port, audit.apothem));
-
-  return (
-    <group>
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, 0]} renderOrder={0}>
-        <planeGeometry args={[11, 11, 11, 11]} />
-        <meshBasicMaterial color="#789382" transparent opacity={0.07} wireframe depthWrite={false} />
-      </mesh>
-      <Line points={[[0, 0, 0], [0, 3.15, 0]]} color="#bfe4c3" lineWidth={1.5} />
-      <Html center position={[0, 3.42, 0]} className="audit-datum-label">
-        <span aria-hidden="true">OUTWARD RADIAL NORMAL</span>
-      </Html>
-
-      <mesh position={[0, 0, 0]} renderOrder={2}>
-        <cylinderGeometry args={[
-          audit.apothem,
-          audit.apothem,
-          REJECTED_HUB.radialThicknessInches,
-          24,
-        ]} />
-        <meshBasicMaterial color="#ff806c" transparent opacity={0.48} wireframe depthWrite={false} />
-      </mesh>
-      <Html center position={[0, 1.4, 0]} className="audit-reference-label">
-        <span aria-hidden="true">TANGENT REFERENCE · APOTHEM {audit.apothem.toFixed(3)} IN</span>
-      </Html>
-
-      {hub.ports.map((port, index) => {
-        const axis = new THREE.Vector3(...port.axis).applyQuaternion(alignment).normalize();
-        const labelPosition = axis.clone().multiplyScalar(4.35);
-        return (
-          <group key={port.id}>
-            <Line
-              points={[[0, 0, 0], axis.clone().multiplyScalar(4.05)]}
-              color={port.type === "S" ? "#f4d190" : "#c88b4a"}
-              lineWidth={1.25}
-              transparent
-              opacity={0.7}
-            />
-            <Html center position={labelPosition} className={`audit-port-label type-${port.type.toLowerCase()}`}>
-              <span aria-hidden="true">P{index + 1} · {port.type}</span>
-            </Html>
-          </group>
-        );
-      })}
-
-      {memberStubs.map((box, index) => (
-        <AuditBox
-          key={box.id}
-          box={box}
-          hub={hub}
-          alignment={alignment}
-          color={hub.ports[index].type === "S" ? "#d9a965" : "#b98246"}
-          edgeColor="#f5d9a6"
-          opacity={1}
-        />
-      ))}
-
-      {tenons.map((box) => (
-        <AuditBox
-          key={box.id}
-          box={box}
-          hub={hub}
-          alignment={alignment}
-          color="#ff4937"
-          edgeColor="#ffd0c8"
-          opacity={0.52}
-          emissive="#8f0800"
-        />
-      ))}
-
-      <mesh renderOrder={5}>
-        <sphereGeometry args={[0.12, 24, 24]} />
-        <meshBasicMaterial color="#fff4e4" />
-      </mesh>
-      <Html center position={[0, -1.55, 0]} className="audit-core-label">
-        <span aria-hidden="true">NODE CENTER · TENON VOLUMES OVERLAP</span>
-      </Html>
     </group>
   );
 }
@@ -741,9 +847,9 @@ function RedesignJoineryAssembly({
     () => JOINERY_MODEL.installedHubs.find((candidate) => candidate.valence === valence),
     [valence],
   );
+  const alignment = useMemo(() => hub ? detailAlignment(hub) : new THREE.Quaternion(), [hub]);
   if (!hub) return null;
 
-  const alignment = detailAlignment(hub);
   const tenons = hub.ports.map((port) => makeAxialTenonObb(
     port,
     PORT_NORMAL_REDESIGN_STUDY.shoulderSetback,
@@ -894,16 +1000,28 @@ function CameraRig({
   const orthographic = useRef<THREE.OrthographicCamera>(null);
   const { size } = useThree();
   const isJoinery = viewMode === "joinery";
+  const isPlatform = viewMode === "platform";
+  const isSite = viewMode === "site";
   const isOrthographic = viewMode === "plan" || viewMode === "front" || viewMode === "right";
 
   useEffect(() => {
-    const target = new THREE.Vector3(0, viewMode === "plan" || isJoinery ? 0 : 3, 0);
+    const target = isPlatform
+      ? new THREE.Vector3(...PLATFORM_CAMERA_TARGET)
+      : new THREE.Vector3(0, isSite ? 3.5 : viewMode === "plan" || isJoinery ? 0 : 3, 0);
     if (!isOrthographic && perspective.current) {
+      if (isSite) {
+        perspective.current.position.set(0, 6.5, 30);
+        perspective.current.lookAt(target);
+        perspective.current.updateProjectionMatrix();
+        return;
+      }
       const angle = Math.PI / 4 + azimuthStep * (Math.PI / 12);
       const aspect = size.width / Math.max(size.height, 1);
       const narrowViewportFit = size.width < 360 ? 1.12 : 1;
       const framedDistance = isJoinery
         ? aspect < 1 ? 14.5 * Math.max(1, 1.02 / aspect) : 14.5
+        : isPlatform
+          ? aspect < 1 ? Math.max(34, 26 * Math.max(1, 0.9 / aspect)) : size.height < 500 ? 30 : 26
         : aspect < 1
           ? Math.max(23.5, 20 * Math.max(1, 0.9 / aspect))
           : 19;
@@ -927,7 +1045,7 @@ function CameraRig({
       orthographic.current.lookAt(target);
       orthographic.current.updateProjectionMatrix();
     }
-  }, [azimuthStep, isJoinery, isOrthographic, resetNonce, size.height, size.width, viewMode, zoom]);
+  }, [azimuthStep, isJoinery, isOrthographic, isPlatform, isSite, resetNonce, size.height, size.width, viewMode, zoom]);
 
   return (
     <>
@@ -940,54 +1058,67 @@ function CameraRig({
 function GeodesicAssembly(props: SceneProps) {
   const selectedMember = MEMBERS.find((member) => member.pieceId === props.selectedMemberId) ?? null;
   const selectedEndpoints = new Set(selectedMember ? [selectedMember.start, selectedMember.end] : []);
+  const platformContext = props.viewMode === "platform";
+  const entranceStudy = platformContext;
+  const platformShown = platformContext && (props.layers.platformDeck || props.layers.platformFrame || props.layers.platformSupports);
+  const domeDatumInches = platformContext ? PLATFORM_CONCEPT.deckTopInches : 0;
 
   return (
     <>
       <group scale={INCHES_TO_FEET}>
-        {props.layers.panels ? (
-          <mesh geometry={PANEL_GEOMETRY} dispose={null} renderOrder={0}>
-            <meshPhysicalMaterial
-              color="#a9c4bb"
-              transparent
-              opacity={0.16}
-              roughness={0.18}
-              metalness={0.05}
-              transmission={0.12}
-              side={THREE.DoubleSide}
-              depthWrite={false}
-            />
-          </mesh>
-        ) : null}
+        <group position={[0, domeDatumInches, 0]}>
+          {props.layers.panels ? (
+            <mesh geometry={entranceStudy ? ENTRY_PANEL_GEOMETRY : PANEL_GEOMETRY} renderOrder={0} receiveShadow>
+              <meshStandardMaterial
+                color="#ffffff"
+                vertexColors
+                flatShading
+                roughness={0.8}
+                metalness={0}
+                emissive="#2b1207"
+                emissiveIntensity={0.14}
+                side={THREE.DoubleSide}
+                polygonOffset
+                polygonOffsetFactor={1}
+                polygonOffsetUnits={1}
+              />
+            </mesh>
+          ) : null}
 
-        {(props.layers.timber || props.layers.labels) ? MEMBERS.map((member) => {
-          const filtered = props.memberFilter !== "all" && member.type !== props.memberFilter;
-          const isolated = props.isolateSelected && props.selectedMemberId !== member.pieceId;
-          return (
-            <TimberMember
-              key={member.pieceId}
-              member={member}
-              showBody={props.layers.timber}
-              selected={props.selectedMemberId === member.pieceId}
-              muted={filtered || isolated}
+          {(props.layers.timber || props.layers.labels) ? MEMBERS.map((member) => {
+            if (entranceStudy && ENTRY_HIDDEN_MEMBER_IDS.has(member.pieceId)) return null;
+            const filtered = props.memberFilter !== "all" && member.type !== props.memberFilter;
+            const isolated = props.isolateSelected && props.selectedMemberId !== member.pieceId;
+            return (
+              <TimberMember
+                key={member.pieceId}
+                member={member}
+                showBody={props.layers.timber}
+                selected={props.selectedMemberId === member.pieceId}
+                muted={filtered || isolated}
+                explode={props.explode}
+                labels={props.layers.labels}
+                selectionEnabled={props.selectionEnabled}
+                onSelect={props.onSelectMember}
+              />
+            );
+          }) : null}
+
+          {(props.layers.hubs || props.layers.labels) ? DOME_MODEL.vertices.map((vertex) => (
+            entranceStudy && ENTRY_HIDDEN_NODE_IDS.has(vertex.id) ? null :
+            <Hub
+              key={vertex.id}
+              vertexId={vertex.id}
+              showBody={props.layers.hubs}
               explode={props.explode}
               labels={props.layers.labels}
-              onSelect={props.onSelectMember}
+              selectedEndpoint={selectedEndpoints.has(vertex.id)}
             />
-          );
-        }) : null}
+          )) : null}
+          {entranceStudy && props.layers.timber ? <EntrancePortal labels={props.layers.labels} /> : null}
+        </group>
 
-        {(props.layers.hubs || props.layers.labels) ? DOME_MODEL.vertices.map((vertex) => (
-          <Hub
-            key={vertex.id}
-            vertexId={vertex.id}
-            showBody={props.layers.hubs}
-            explode={props.explode}
-            labels={props.layers.labels}
-            selectedEndpoint={selectedEndpoints.has(vertex.id)}
-          />
-        )) : null}
-
-        {(props.layers.platformDeck || props.layers.platformFrame || props.layers.platformSupports) ? (
+        {platformShown ? (
           <PlatformConcept
             deck={props.layers.platformDeck}
             frame={props.layers.platformFrame}
@@ -997,11 +1128,11 @@ function GeodesicAssembly(props: SceneProps) {
         ) : null}
       </group>
 
-      {props.layers.dimensions ? <DimensionLayer /> : null}
+      {props.layers.dimensions ? <group position={[0, domeDatumInches * INCHES_TO_FEET, 0]}><DimensionLayer /></group> : null}
       {props.layers.ground ? (
         <>
           <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.08, 0]} receiveShadow>
-            <circleGeometry args={[7.15, 10]} />
+            <circleGeometry args={[platformContext ? 10.5 : 7.15, 10]} />
             <meshStandardMaterial color="#070b08" roughness={0.99} />
           </mesh>
           <gridHelper args={[32, 32, "#243029", "#101612"]} position={[0, -0.065, 0]} />
@@ -1012,54 +1143,89 @@ function GeodesicAssembly(props: SceneProps) {
   );
 }
 
-export default function DomeScene(props: SceneProps) {
+function DomeScene(props: SceneProps) {
   const isJoinery = props.viewMode === "joinery";
-  const jointBackground = props.jointStudyMode === "original" ? "#090303" : "#020704";
+  const isPlatform = props.viewMode === "platform";
+  const isSite = props.viewMode === "site";
+  const [webglUnavailable, setWebglUnavailable] = useState(false);
+  const jointBackground = "#020704";
+
+  useEffect(() => {
+    const probe = document.createElement("canvas");
+    const context = probe.getContext("webgl2") ?? probe.getContext("webgl");
+    const frame = window.requestAnimationFrame(() => {
+      setWebglUnavailable(!context);
+    });
+
+    return () => window.cancelAnimationFrame(frame);
+  }, []);
+
   return (
-    <div
-      className="canvas-shell"
-      role="img"
-      aria-label={isJoinery
-        ? props.jointStudyMode === "original"
-          ? `Original tenon clearance audit for a ${props.auditHubValence}-way hub. The proposed tenon volumes overlap; accessible results follow the viewport.`
-          : `Port-normal two-shell clearance study for a ${props.auditHubValence}-way hub. Fixed width-radial pockets, cross-keys, and a center spindle are shown. Structure remains unverified; accessible results follow the viewport.`
-        : "Interactive 3D model. A complete keyboard-accessible member schedule follows the viewport."}
-    >
-      <Canvas
-        aria-hidden="true"
-        dpr={[1, 1.75]}
-        gl={{ antialias: true, alpha: false, powerPreference: "high-performance" }}
-        shadows="percentage"
-        onPointerMissed={() => { if (!isJoinery) props.onSelectMember(null); }}
-        fallback={<div className="webgl-fallback">3D rendering is unavailable. Use the member schedule and geometry audit below.</div>}
+    <>
+      <div
+        className="canvas-shell"
+        role="img"
+        aria-label={isJoinery
+          ? `Port-normal two-shell spatial clearance study for a ${props.auditHubValence}-way hub. Fixed width-radial pockets, cross-keys, and a center spindle are shown. Physical fit and structure remain unverified; accessible results follow the viewport.`
+          : isSite
+            ? "Perspective site study using the exact audited 65-member dome model over Jantz's cleared backyard. Placement and fit are approximate until the site is measured."
+            : isPlatform
+              ? `Unengineered entrance and 16 foot decagonal platform study. Three approach steps align with a ${ENTRANCE_STUDY.clearWidthInches} inch clear by ${ENTRANCE_STUDY.clearRiseInches} inch rise crouch opening. Six canonical face panels, seven canonical members, and node V007 are hidden only in this optional view; the verified 65-member reference remains unchanged. The schematic replacement cassette, all-wood joints, load path, door, weather seals, foundations, guards, fabrication, and acoustics are not approved.`
+              : props.layers.panels
+                ? "Interactive 3D wood-shell concept showing 40 opaque triangular infill surfaces behind the complete timber grid. This is a visual finish study, not a panel fabrication schedule, weather enclosure, structural diaphragm, or verified acoustic design. Open Parts or Audit for keyboard-accessible geometry details."
+                : "Interactive 3D exposed timber model. Open Parts or Audit for keyboard-accessible member details."}
       >
-        <CameraRig viewMode={props.viewMode} azimuthStep={props.azimuthStep} zoom={props.zoom} resetNonce={props.resetNonce} />
-        <color attach="background" args={[isJoinery ? jointBackground : "#020403"]} />
-        <fog attach="fog" args={[isJoinery ? jointBackground : "#020403", isJoinery ? 18 : 20, isJoinery ? 40 : 38]} />
-        <hemisphereLight args={["#dce2d3", "#010201", 1.05]} />
-        <directionalLight position={[8, 14, 9]} intensity={4.15} color="#fff0d2" castShadow shadow-mapSize={[2048, 2048]} />
-        <directionalLight position={[-9, 6, -7]} intensity={0.5} color="#8eb49b" />
-        <pointLight position={[-5, 7, -8]} intensity={18} distance={24} decay={2} color="#c77835" />
-        <Suspense fallback={null}>
-          {isJoinery
-            ? props.jointStudyMode === "original"
-              ? <OriginalJoineryAssembly valence={props.auditHubValence} orientation={props.auditRoll} />
-              : <RedesignJoineryAssembly valence={props.auditHubValence} />
-            : <GeodesicAssembly {...props} />}
-        </Suspense>
-        <OrbitControls
-          makeDefault
-          target={isJoinery ? [0, 0, 0] : [0, 3, 0]}
-          enableRotate={props.viewMode === "iso" || isJoinery}
-          enablePan={false}
-          autoRotate={props.autoRotate && props.viewMode === "iso"}
-          autoRotateSpeed={0.32}
-          minDistance={isJoinery ? 4.5 : 8}
-          maxDistance={isJoinery ? 32 : 32}
-          enableDamping
-          dampingFactor={0.07}
-        />
-      </Canvas>
-    </div>
+        <Canvas
+          aria-hidden="true"
+          dpr={[1, 1.5]}
+          frameloop={props.autoRotate ? "always" : "demand"}
+          gl={{ antialias: true, alpha: true, powerPreference: "high-performance" }}
+          shadows="basic"
+          onCreated={() => setWebglUnavailable(false)}
+          onPointerMissed={() => { if (!isJoinery && props.selectionEnabled) props.onSelectMember(null); }}
+          fallback={null}
+        >
+          <CameraRig viewMode={props.viewMode} azimuthStep={props.azimuthStep} zoom={props.zoom} resetNonce={props.resetNonce} />
+          {!isSite ? <color attach="background" args={[isJoinery ? jointBackground : "#020403"]} /> : null}
+          {!isSite && !isPlatform ? <fog attach="fog" args={[
+            isJoinery ? jointBackground : "#020403",
+            isJoinery ? 18 : props.mobileLayout ? 36 : 20,
+            isJoinery ? 40 : props.mobileLayout ? 68 : 38,
+          ]} /> : null}
+          <hemisphereLight args={["#dce2d3", "#010201", 1.05]} />
+          <directionalLight position={[8, 14, 9]} intensity={4.15} color="#fff0d2" castShadow shadow-mapSize={[1024, 1024]} />
+          <directionalLight position={[-9, 6, -7]} intensity={0.5} color="#8eb49b" />
+          <pointLight position={[-5, 7, -8]} intensity={18} distance={24} decay={2} color="#c77835" />
+          <Suspense fallback={null}>
+            {isJoinery
+              ? <RedesignJoineryAssembly valence={props.auditHubValence} />
+              : <GeodesicAssembly {...props} />}
+            {isSite ? <ContactShadows position={[0, -0.04, 0]} opacity={0.5} scale={15} blur={2.5} far={10} frames={1} /> : null}
+          </Suspense>
+          <OrbitControls
+            makeDefault
+            target={isJoinery ? [0, 0, 0] : isPlatform ? PLATFORM_CAMERA_TARGET : [0, 3, 0]}
+            enableRotate={props.viewMode === "iso" || props.viewMode === "platform" || isJoinery}
+            enableZoom={!isSite}
+            enablePan={false}
+            autoRotate={props.autoRotate && (props.viewMode === "iso" || props.viewMode === "platform")}
+            autoRotateSpeed={0.32}
+            minDistance={isJoinery ? 4.5 : props.mobileLayout ? isPlatform ? 24 : 18 : 8}
+            maxDistance={isJoinery ? 32 : isPlatform ? 80 : props.mobileLayout ? 48 : 32}
+            minPolarAngle={isJoinery ? Math.PI * 0.12 : Math.PI * 0.2}
+            maxPolarAngle={isJoinery ? Math.PI * 0.88 : Math.PI / 2 - 0.03}
+            rotateSpeed={0.62}
+            zoomSpeed={0.8}
+            enableDamping
+            dampingFactor={0.075}
+            touches={{ ONE: THREE.TOUCH.ROTATE, TWO: THREE.TOUCH.DOLLY_PAN }}
+            onStart={props.onInteractionStart}
+          />
+        </Canvas>
+      </div>
+      {webglUnavailable ? <div className="webgl-fallback accessible-webgl-fallback" role="status">3D rendering is unavailable. Use Parts and Audit for the complete accessible geometry reference.</div> : null}
+    </>
   );
 }
+
+export default memo(DomeScene);
