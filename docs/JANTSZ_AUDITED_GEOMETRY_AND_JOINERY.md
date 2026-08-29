@@ -1,9 +1,9 @@
-# Jantsz Geometry and Joinery Audit
+# Black Belt Building / Jantz Dome Geometry and Joinery Audit
 
-**Status:** Rev 06 centerline audit plus spatial-clearance redesign study
+**Status:** Rev 07 geometry and field-planning reference
 
 **Issue:** geometry reference only - not released for fabrication, occupancy, or structural use
-**Downloadable PDF:** audit reference issued; fabrication drawings and blueprints remain withheld
+**Downloadable PDF:** Rev 07 records canonical parts, gross faces, entrance and platform studies, and spatial clearance; fabrication drawings and blueprints remain withheld
 
 This document replaces the pasted content in full. The former 15-strut, six-hub
 "half-dodecahedron" kit is withdrawn because its topology does not close. The
@@ -11,13 +11,14 @@ former 3-inch hub and wedged-through-tenon dimensions are also withdrawn because
 the stated solid is incomplete and every pair of unclipped tenon test volumes
 intersects under the common tangent-plane assumption described in Section 6.
 
-> **Jantsz - what this means now**
+> **Jantz / Black Belt Building - what this means now**
 >
 > Do not buy or cut stock, order CNC parts, machine hubs, set fabrication jigs,
 > assemble, occupy, or scale from this document. The released information is
-> mathematical centerline geometry plus a spatial-clearance redesign study. The
-> redesign removes the tested interference but is not a strength, retention,
-> durability, assembly, or fabrication approval.
+> canonical centerline geometry, gross face geometry, affected-set records for
+> the optional entrance, platform spatial geometry, and a joint-clearance study.
+> None is a strength, retention, durability, weather, acoustic, assembly, or
+> fabrication approval.
 
 ### Vocabulary used in this audit
 
@@ -47,7 +48,7 @@ intersects under the common tangent-plane assumption described in Section 6.
 | Finished timber cut lengths | Withheld until hub setbacks and tenon depths close |
 | Wedge shape, clearance, adhesive, and tolerance | Unissued |
 | Joint capacity and structural loads | Not engineered or tested |
-| Downloadable geometry / clearance audit PDF | Issued as a non-fabrication reference |
+| Downloadable Rev 07 field-reference PDF | Issued as a non-fabrication reference |
 | Printable fabrication documents | Withheld |
 
 All lengths in the geometry sections are node-center dimensions. They are not
@@ -591,7 +592,7 @@ distances. At a 1.5-inch apothem, a centered 1.25-inch mortise leaves about
 each side of a regular hexagon face. Wedge action and real cutter radii reduce
 the usable material further.
 
-### Rev 06 port-normal spatial-clearance redesign study
+### Current Rev 07 port-normal spatial-clearance study
 
 The current CAD contains one explicit **clearance candidate**, not an approved
 connection. Unlike the withdrawn tangent layout, every redesign shoulder face is

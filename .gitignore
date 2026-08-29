@@ -5,6 +5,9 @@ node_modules
 .vercel
 *.tsbuildinfo
 .playwright-mcp
+tmp/
+**/__pycache__/
+black-belt-*.png
 jantsz-desktop-audit.png
 output/pdf/rendered/
 .env.local

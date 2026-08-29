@@ -7,6 +7,7 @@ import type { AuditHubValence, LayerState, MemberFilter, ViewMode } from "./Dome
 import {
   DOME_MODEL,
   ENTRANCE_STUDY,
+  HANDOFF,
   JANTSZ_MESSAGE,
   JOINERY_MODEL,
   JOINERY_NOTES,
@@ -36,6 +37,8 @@ type WorkbenchPanel = "view" | "layers" | "details" | "geometry" | "schedule" | 
 const REDUCED_MOTION_QUERY = "(prefers-reduced-motion: reduce)";
 const MOBILE_LAYOUT_QUERY = "(max-width: 860px)";
 const vertexById = new Map(DOME_MODEL.vertices.map((vertex) => [vertex.id, vertex]));
+const PDF_PATH = `/downloads/black-belt-building-dome-field-reference-rev-${PROJECT.revision.toLowerCase()}.pdf`;
+const PDF_DOWNLOAD_NAME = `Black-Belt-Building-Dome-Field-Reference-Rev-${PROJECT.revision}.pdf`;
 
 const JANTSZ_REVIEW_NOTE = JANTSZ_MESSAGE;
 
@@ -643,7 +646,7 @@ export default function DomeHandoff() {
     try {
       await navigator.clipboard.writeText(JANTSZ_REVIEW_NOTE);
       notify("message");
-      setAnnouncement("Jantsz review note copied to the clipboard.");
+      setAnnouncement("Jantz review note copied to the clipboard.");
     } catch {
       setAnnouncement("The review note could not be copied. Select the message text and copy it manually.");
     }
@@ -777,19 +780,19 @@ export default function DomeHandoff() {
         Skip to member schedule
       </a>
       <header className="cad-topbar" aria-hidden={messageOpen ? true : undefined} inert={messageOpen}>
-        <a className="cad-brand" href="#top" aria-label="Return to the complete isometric dome" onClick={(event) => { event.preventDefault(); resetExperience(); }}><span className="cad-mark" aria-hidden="true">△</span><span><h1>JANTSZ / DOME CAD</h1><small>{PROJECT.id} · REV {PROJECT.revision}</small></span></a>
+        <a className="cad-brand" href="#top" aria-label="Return to the complete Black Belt Building isometric dome" onClick={(event) => { event.preventDefault(); resetExperience(); }}><span className="cad-mark" aria-hidden="true">△</span><span><h1>{HANDOFF.company.toUpperCase()}</h1><small>{HANDOFF.preparedFor.toUpperCase()} · {PROJECT.id} · REV {PROJECT.revision}</small></span></a>
         <div className="model-status" role="status" aria-label={`${auditPassed ? "Dome centerline geometry verified" : "Dome geometry failed"}; ${redesignClearanceVerified ? "joint spatial clearance verified in the digital model only, structure and fabrication not approved" : "joint interference found"}`}><span className={auditPassed ? "pass-dot" : "fail-dot"} /><strong>{auditPassed ? "CENTERLINE VERIFIED" : "MODEL FAILED"}</strong><span className="study-state"><i className={redesignClearanceVerified ? "study-dot" : "fail-dot"} />{redesignClearanceVerified ? "JOINT CLEARANCE · DIGITAL ONLY" : "JOINT CHECK FAILED"}</span></div>
         <div className="top-actions">
           <button ref={reviewNoteButtonRef} type="button" className="jantsz-note-trigger" aria-label="Read Jantz review note" onClick={() => setMessageOpen(true)}><span className="review-note-full">Review note</span><span className="review-note-short" aria-hidden="true">NOTE</span></button>
           <a
             className="pdf-download"
-            href="/downloads/jantsz-v2-dome-geometry-audit-rev-06.pdf"
-            download="Jantsz-V2-Dome-Geometry-Audit-Rev-06.pdf"
+            href={PDF_PATH}
+            download={PDF_DOWNLOAD_NAME}
             type="application/pdf"
-            aria-label="Download Jantsz dome geometry and clearance audit PDF, revision 06. Not for fabrication."
+            aria-label={`Download the Black Belt Building dome field reference PDF, revision ${PROJECT.revision}. Not for fabrication.`}
             onClick={() => notify("pdf")}
           >
-            <span aria-hidden="true">↓</span><span>Dome PDF<small>Geometry audit · not for fabrication</small></span>
+            <span aria-hidden="true">↓</span><span>Field PDF<small>Rev {PROJECT.revision} · parts + panels</small></span>
           </a>
         </div>
       </header>
@@ -1096,7 +1099,7 @@ export default function DomeHandoff() {
                   </section>
                   <section>
                     <h2>Release boundary</h2>
-                    <p>The downloadable PDF records the centerline and clearance audit only. It is not a cut list, shop drawing, blueprint, structural design, permit set, or fabrication release. No finished timber lengths, machining datums, mortise fit, lamination schedule, CNC path, or structural capacity is issued.</p>
+                    <p>The Rev {PROJECT.revision} PDF records the canonical geometry, every timber and node ID, gross panel families and placement, the optional entrance patch, the platform concept, and the current clearance audit. It is not a cut list, shop drawing, blueprint, structural design, permit set, or fabrication release. Finished timber and panel cuts, machining datums, mortise fit, lamination, weather enclosure, acoustics, CNC paths, and structural capacity remain withheld.</p>
                   </section>
                 </div>
               ) : null}
@@ -1112,15 +1115,15 @@ export default function DomeHandoff() {
         <form method="dialog"><button ref={dialogCloseRef} type="submit" className="dialog-close" aria-label="Close Jantz review note">×</button></form>
         <p id="message-dialog-summary" className="sr-only">The dome centerline is verified, while joint strength, structure, and fabrication approval remain open. This note is an audit handoff, not construction authorization.</p>
         <p className="dialog-kicker">CENTERLINE VERIFIED / DIGITAL CLEARANCE ONLY / NOT ENGINEERED</p>
-        <h2 id="message-title">JANTZ REVIEW NOTE</h2>
+        <h2 id="message-title">BLACK BELT BUILDING / JANTZ REVIEW NOTE</h2>
         <MessageBody />
         <div className="dialog-actions">
-          <a className="dialog-pdf-link" href="/downloads/jantsz-v2-dome-geometry-audit-rev-06.pdf" download="Jantsz-V2-Dome-Geometry-Audit-Rev-06.pdf" type="application/pdf" onClick={() => notify("pdf")}>↓ Download dome geometry audit PDF</a>
+          <a className="dialog-pdf-link" href={PDF_PATH} download={PDF_DOWNLOAD_NAME} type="application/pdf" aria-label={`Download Black Belt Building dome field reference, revision ${PROJECT.revision}. Not for fabrication.`} onClick={() => notify("pdf")}>↓ Download Rev {PROJECT.revision} field reference PDF</a>
           <button type="button" className="copy-button" onClick={copyMessage}>{toast === "message" ? "Copied to clipboard ✓" : "Copy complete note"}</button>
         </div>
       </dialog>
 
-      {toast && toast !== "message" ? <div className="toast" role="status">{toast === "csv" ? "Centerline CSV downloaded · not cut lengths" : toast === "json" ? "Geometry audit data downloaded · reference only" : "Dome audit PDF downloaded · platform not included"}<span>✓</span></div> : null}
+      {toast && toast !== "message" ? <div className="toast" role="status">{toast === "csv" ? "Centerline CSV downloaded · not cut lengths" : toast === "json" ? "Geometry audit data downloaded · reference only" : `Rev ${PROJECT.revision} field reference downloaded · not for fabrication`}<span>✓</span></div> : null}
     </main>
   );
 }

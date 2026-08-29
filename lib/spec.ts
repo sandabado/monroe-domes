@@ -15,13 +15,20 @@ import {
 
 export const PROJECT = Object.freeze({
   id: "WB-DOME-12-V2",
-  revision: "06",
+  revision: "07",
   diameterInches: 144,
   radiusInches: 72,
   peakHeightInches: 72,
   frequency: 2,
   baseShape: "Regular decagon",
   geometryMethod: "Class-I 2V icosahedron · radial projection · equatorial cut",
+});
+
+export const HANDOFF = Object.freeze({
+  preparedFor: "Jantz",
+  company: "Black Belt Building",
+  preparedBy: "Whole Body",
+  title: "12 ft 2V dome geometry + field planning reference",
 });
 
 export const DOME_MODEL = buildV2Hemisphere(PROJECT.radiusInches);
@@ -337,7 +344,7 @@ export const MODEL_ASSUMPTIONS = Object.freeze([
   "The 2 × 2 section is modeled at a dressed 1.5 × 1.5 in and must be checked against the actual stock.",
 ]);
 
-export const JANTSZ_MESSAGE = `Jantsz —
+export const JANTSZ_MESSAGE = `${HANDOFF.preparedFor} —
 
 DOME CENTERLINE GEOMETRY VERIFIED
 CURRENT JOINT STUDY CLEARS THE SPATIAL FIT TEST
@@ -384,7 +391,7 @@ Member-length mathematics
 With the same S = 4.000 in shoulder setback at both ends, the CAD-only shoulder spans are 31.350380 in for short members and 36.498447 in for long members. Adding the two 1.250 in study tenons produces modeled tip-to-tip extents of 33.850380 in and 38.998447 in. These values explain the solid model; they are not issued cut lengths and must not be used for fabrication.
 
 PDF status
-The downloadable PDF is a geometry and clearance audit. It is not a cut list, shop drawing, blueprint, structural design, or fabrication release. Finished timber lengths, machining datums, mortise fit, laminating schedule, wedges or keys, CNC paths, and structural capacities remain withheld.
+The Rev 07 downloadable PDF records the canonical geometry, all 65 timber IDs, all 40 gross face templates, the optional entrance patch, the 192 in platform study, and the current spatial-clearance audit. It is not a cut list, shop drawing, blueprint, structural design, or fabrication release. Finished timber lengths, finished panel cuts, machining datums, mortise fit, laminating schedule, wedges or keys, CNC paths, and structural capacities remain withheld.
 
 Next gate
 Confirm actual stock, species and grade, service moisture and exposure, loads and occupancy, foundation and anchorage, the hub material/lamination system, retention method, assembly sequence, and tooling. Then the joint needs exact Boolean solids, ligament and grain checks, engineered capacity calculations, a full-scale prototype/test program, and an explicit fabrication release.`;

@@ -1,10 +1,10 @@
-# Jantsz Dome CAD
+# Black Belt Building Dome CAD
 
-Interactive architectural geometry audit for a 12 ft, class-I, frequency-2
-icosahedral hemisphere. The app exposes the complete centerline dome, individual
-members, node data, orthographic views, the failed first tenon layout, a tested
-port-normal spatial-clearance redesign study, and an optional unengineered
-platform concept.
+Interactive architectural reference prepared for Jantz and Black Belt Building
+for a 12 ft, class-I, frequency-2 icosahedral hemisphere. The app exposes the
+complete centerline dome, every timber and node, orthographic views, gross panel
+families, an optional crouch entrance, an unengineered all-wood platform concept,
+and the current port-normal spatial-clearance study.
 
 ## Current release boundary
 
@@ -12,7 +12,8 @@ platform concept.
 - First mortise-and-tenon layout: does not fit; every tested pair overlaps
 - Port-normal redesign clearance: verified at a 4.000 in shoulder setback with
   a fixed width-radial roll; strength, retention, and fabrication remain open
-- Downloadable PDF: non-fabrication geometry and clearance audit issued
+- Downloadable Rev 07 PDF: canonical parts, gross faces, panel placement,
+  entrance, platform, release gate, and spatial-clearance reference issued
 - Fabrication drawings, finished cuts, CNC paths, structural capacity, and
   occupancy approval: not issued
 
@@ -20,7 +21,7 @@ The verified dome contains 26 nodes, 65 member axes, 40 triangular faces, and a
 10-node planar decagon boundary. It uses 30 short chords and 35 long chords.
 The proposed 1.5 × 1.25 × 0.5 in tenon volumes intersect at every tested H4,
 H5, and H6 port pair under the stated common tangent-plane assumption. The
-Rev 06 redesign instead places each shoulder face normal to its member axis at
+The current Rev 07 study instead places each shoulder face normal to its member axis at
 S = 4.000 in. It studies a 1.250 × 0.750 × 0.500 in tenon inside an oversized
 1.300 × 0.780 × 0.530 in digital pocket, within a radial slab q = −2.500 to
 +0.500 in and two 1.500 in shells split at q = −1.000 in. This is verified
@@ -34,6 +35,8 @@ spatial exploration only, not a selected retention detail.
 
 Read the full mathematical record in
 [`docs/JANTSZ_AUDITED_GEOMETRY_AND_JOINERY.md`](docs/JANTSZ_AUDITED_GEOMETRY_AND_JOINERY.md).
+The current printable artifact is
+[`public/downloads/black-belt-building-dome-field-reference-rev-07.pdf`](public/downloads/black-belt-building-dome-field-reference-rev-07.pdf).
 
 ## Run locally
 
@@ -55,9 +58,9 @@ npm run build
 
 The interface separates:
 
-- **Mode:** Dome, Redesign, or Old Issue
+- **Experience:** Dome, Parts, Entry, Site, or Joint
 - **View:** 3D, Top, Front, or Side
-- **Panels:** Layers, Parts, Geometry, and Specs
+- **Information:** Layers, selected-part details, project guide, and audit schedules
 
 All dimensions presented as dome size or member length are node-center geometry
 unless a future, separately reviewed fabrication release says otherwise.
