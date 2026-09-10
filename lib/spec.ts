@@ -15,7 +15,7 @@ import {
 
 export const PROJECT = Object.freeze({
   id: "WB-DOME-12-V2",
-  revision: "07",
+  revision: "08",
   diameterInches: 144,
   radiusInches: 72,
   peakHeightInches: 72,
@@ -101,9 +101,14 @@ export const REDESIGN_STUDY = Object.freeze({
   selectedRoll: "width-radial · fixed",
   testedRollRange: "0°–90° sampled at 1° for robustness; fabrication study fixed width-radial",
   sampledPairTests: 24_570,
+  sampledRollStartDegrees: 0,
+  sampledRollEndDegrees: 90,
+  sampledRollIncrementDegrees: 1,
+  sampledRollPositionCount: 91,
   sampledPocketCollisions: 0,
   minimumSampledPocketSeparation: 1.3966370358711595,
   externalMemberPairTests: 24_570,
+  externalMemberEnvelopeLengthInches: 6,
   externalMemberCollisions: 0,
   minimumSampledMemberSeparation: 1.537727207024575,
   continuousRollPocketPairTests: 270,
@@ -122,7 +127,7 @@ export const REDESIGN_STUDY = Object.freeze({
   minimumCrossKeyReliefToReliefSeparation: 2.2831317760435668,
   minimumClampBoreToPocketSeparation: 1.7376390384477332,
   minimumClampBoreToCrossKeyReliefSeparation: 2.168412480127734,
-  note: "Clearance result only. Port-normal shoulders, fixed width-radial roll, exact convex shells, and the common split make the geometry explicit; retention capacity, strength, durability, tolerances, and fabrication remain unissued.",
+  note: "Clearance result only. The sampled record covers 270 installed port pairs at 91 one-degree roll positions from 0 through 90 degrees; its external member proxies extend 6 inches from each shoulder. Port-normal shoulders, fixed width-radial roll, exact convex shells, and the common split make the geometry explicit; retention capacity, strength, durability, tolerances, and fabrication remain unissued.",
 });
 
 export const REJECTED_HUB = Object.freeze({
@@ -339,6 +344,8 @@ export const MODEL_ASSUMPTIONS = Object.freeze([
   "Member lengths are node-center to node-center chords, not finished stock cuts.",
   "Rendered hub prisms are schematic topology markers; the full-length timber solids overlap them by construction.",
   "The current study uses exact port-normal faces at a 4 in axial shoulder setback.",
+  "The 24,570 sampled checks are 270 installed port pairs evaluated at 91 one-degree roll positions from 0 through 90 degrees.",
+  "The sampled and continuous full-section member checks use 6 in external envelopes beginning at each shoulder, not complete timber lengths.",
   "The two-shell joint study clears the modeled member, tenon, pocket, key-relief, and center-bore envelopes, but is not structurally approved or build-ready.",
   "The geometric cap is complete; loads, connections, foundations, openings, and code compliance are outside this model.",
   "The 2 × 2 section is modeled at a dressed 1.5 × 1.5 in and must be checked against the actual stock.",
@@ -358,13 +365,15 @@ Current spatial clearance study
 • Oversized digital pocket envelope: 1.300 × 0.780 × 0.530 in — a clearance test, not a fit tolerance
 • Two equal 1.500 in radial shells split at q = −1.000 in; the split passes through every pocket by at least 0.348 in
 • Selected member roll: width-radial and fixed; changing roll is not a fabrication option
+• Sample domain: 270 installed port pairs at 91 one-degree roll positions from 0° through 90°
+• The full-section member clearance proxies extend 6.000 in outward from each shoulder; they are not complete timber members
 • The H4 body extends 1.500 in below the base-node datum and leaves a 0.750 in rim below the full timber shoulder; a foundation recess or raised node datum is still required
 
 What the exact geometry now proves
 • A conservative square envelope that contains the pocket at every continuous roll clears all 270 installed pocket-pair checks; minimum separating-axis margin 1.380 in
 • A conservative square envelope that contains a rotated 1.5 × 1.5 in member clears all 270 installed member-pair checks; minimum margin 1.408 in
 • The explicit 1° sweep still records 0 of 24,570 pocket-pair intersections and 0 of 24,570 member-envelope intersections
-• The minimum sampled margins are 1.397 in between pocket envelopes and 1.538 in between full member envelopes
+• The minimum sampled margins are 1.397 in between pocket envelopes and 1.538 in between full-section 6-inch member proxies
 • Every pocket stays inside the radial slab and all non-entry faces; the full 1.5 × 1.5 in shoulder also fits with at least 1.011 in to any non-entry port face
 • The modeled cross-key reliefs and central square bore clear every non-own pocket; these are capture-space checks only, not retention-capacity checks
 • H4 still requires five positive-handed and five reflected-handed base installations
@@ -385,13 +394,13 @@ Wood face and entrance studies
 • The platform retains an all-wood connection goal; no connection or joint sizes are released
 
 What is not proved
-This closes spatial interference only. The split makes a captured assembly path plausible, but no closure or retention part has been released. The study does not establish wood strength, mortise or tenon capacity, hub lamination strength, adhesive durability, retention, assembly sequence, moisture movement, tolerances, loads, foundation, anchorage, code compliance, or occupancy safety. The 1.5 in strut section is too small for a standard pegged mortise-and-tenon detail under the cited timber-frame peg geometry, so no peg is specified here.
+This closes spatial interference only. The split makes a captured assembly path plausible, but no closure or retention part has been released. The study does not establish wood strength, mortise or tenon capacity, hub lamination strength, adhesive durability, retention, assembly sequence, moisture movement, tolerances, loads, foundation, anchorage, code compliance, or occupancy safety. The stated dimensions do not establish a TFEC-standard tension-loaded wood-peg detail within the modeled 1.5 in section, so no peg is specified here. Other joint or retention concepts require their own engineering and test evidence.
 
 Member-length mathematics
 With the same S = 4.000 in shoulder setback at both ends, the CAD-only shoulder spans are 31.350380 in for short members and 36.498447 in for long members. Adding the two 1.250 in study tenons produces modeled tip-to-tip extents of 33.850380 in and 38.998447 in. These values explain the solid model; they are not issued cut lengths and must not be used for fabrication.
 
 PDF status
-The Rev 07 downloadable PDF records the canonical geometry, all 65 timber IDs, all 40 gross face templates, the optional entrance patch, the 192 in platform study, and the current spatial-clearance audit. It is not a cut list, shop drawing, blueprint, structural design, or fabrication release. Finished timber lengths, finished panel cuts, machining datums, mortise fit, laminating schedule, wedges or keys, CNC paths, and structural capacities remain withheld.
+The Rev ${PROJECT.revision} downloadable PDF records the canonical geometry, all 65 timber IDs, all 40 gross face templates, the optional entrance patch, the 192 in platform study, and the current spatial-clearance audit. It is not a cut list, shop drawing, blueprint, structural design, or fabrication release. Finished timber lengths, finished panel cuts, machining datums, mortise fit, laminating schedule, wedges or keys, CNC paths, and structural capacities remain withheld.
 
 Next gate
 Confirm actual stock, species and grade, service moisture and exposure, loads and occupancy, foundation and anchorage, the hub material/lamination system, retention method, assembly sequence, and tooling. Then the joint needs exact Boolean solids, ligament and grain checks, engineered capacity calculations, a full-scale prototype/test program, and an explicit fabrication release.`;

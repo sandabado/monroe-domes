@@ -63,6 +63,22 @@ export interface GeodesicAudit {
     readonly boundaryEdgeCount: number;
     readonly strutEndpointCount: number;
     readonly hubPortCount: number;
+    readonly connectedComponentCount: number;
+    readonly uniqueVertexCount: number;
+    readonly invalidEdgeEndpointCount: number;
+    readonly uniqueFaceCount: number;
+    readonly nondegenerateFaceCount: number;
+    readonly duplicateFaceCount: number;
+    readonly faceEdgeIncidenceCount: number;
+    readonly manifoldBoundaryEdgeCount: number;
+    readonly manifoldInteriorEdgeCount: number;
+    readonly invalidEdgeIncidenceCount: number;
+    readonly unmodeledFaceEdgeCount: number;
+    readonly boundaryVertexCount: number;
+    readonly boundaryCycleCount: number;
+    readonly boundaryDegreeErrorCount: number;
+    readonly outwardFaceCount: number;
+    readonly minimumOutwardNormalDot: number;
   };
   readonly tolerances: {
     readonly geometric: number;
@@ -76,6 +92,11 @@ export interface GeodesicAudit {
   };
   readonly checks: {
     readonly isTriangulatedDisk: boolean;
+    readonly isConnected: boolean;
+    readonly hasUniqueNondegenerateFaces: boolean;
+    readonly hasManifoldEdgeIncidence: boolean;
+    readonly hasSingleClosedBoundary: boolean;
+    readonly hasOutwardWinding: boolean;
     readonly hasPlanarBase: boolean;
     readonly hasRegularDecagonBase: boolean;
     readonly hasBalancedConnections: boolean;
@@ -320,6 +341,182 @@ function max(values: readonly number[]): number {
   return values.length === 0 ? 0 : Math.max(...values);
 }
 
+function idEdgeKey(first: string, second: string): string {
+  return idNumber(first) < idNumber(second)
+    ? `${first}:${second}`
+    : `${second}:${first}`;
+}
+
+interface TriangulatedDiskEvidence {
+  readonly connectedComponentCount: number;
+  readonly uniqueVertexCount: number;
+  readonly invalidEdgeEndpointCount: number;
+  readonly uniqueFaceCount: number;
+  readonly nondegenerateFaceCount: number;
+  readonly duplicateFaceCount: number;
+  readonly faceEdgeIncidenceCount: number;
+  readonly manifoldBoundaryEdgeCount: number;
+  readonly manifoldInteriorEdgeCount: number;
+  readonly invalidEdgeIncidenceCount: number;
+  readonly unmodeledFaceEdgeCount: number;
+  readonly boundaryVertexCount: number;
+  readonly boundaryCycleCount: number;
+  readonly boundaryDegreeErrorCount: number;
+  readonly outwardFaceCount: number;
+  readonly minimumOutwardNormalDot: number;
+  readonly boundaryEdgeIds: readonly string[];
+}
+
+/**
+ * Audits the generated triangle complex independently of Euler's equation.
+ * A valid result has one connected 1-skeleton, unique positive-area faces,
+ * one/two face incidences at boundary/interior edges, one closed boundary
+ * cycle, and consistently outward face winding.
+ */
+function auditTriangulatedDisk(
+  vertices: readonly GeodesicVertex[],
+  edges: readonly GeodesicEdge[],
+  faces: readonly GeodesicFace[],
+  radius: number,
+): TriangulatedDiskEvidence {
+  const positionById = new Map(vertices.map((vertex) => [vertex.id, vertex.position]));
+  const uniqueVertexCount = positionById.size;
+  const neighborsByVertexId = new Map([...positionById.keys()].map((id) => [id, new Set<string>()]));
+  const edgeByKey = new Map<string, GeodesicEdge>();
+  let invalidEdgeEndpointCount = 0;
+
+  for (const edge of edges) {
+    const startNeighbors = neighborsByVertexId.get(edge.start);
+    const endNeighbors = neighborsByVertexId.get(edge.end);
+    if (!startNeighbors || !endNeighbors || edge.start === edge.end) {
+      invalidEdgeEndpointCount += 1;
+      continue;
+    }
+    startNeighbors.add(edge.end);
+    endNeighbors.add(edge.start);
+    edgeByKey.set(idEdgeKey(edge.start, edge.end), edge);
+  }
+
+  let connectedComponentCount = 0;
+  const visitedVertexIds = new Set<string>();
+  for (const startId of neighborsByVertexId.keys()) {
+    if (visitedVertexIds.has(startId)) continue;
+    connectedComponentCount += 1;
+    const pending = [startId];
+    visitedVertexIds.add(startId);
+    while (pending.length > 0) {
+      const current = pending.pop()!;
+      for (const neighbor of neighborsByVertexId.get(current) ?? []) {
+        if (visitedVertexIds.has(neighbor)) continue;
+        visitedVertexIds.add(neighbor);
+        pending.push(neighbor);
+      }
+    }
+  }
+
+  const faceKeys = new Set<string>();
+  const faceIncidenceByEdgeKey = new Map([...edgeByKey.keys()].map((key) => [key, 0]));
+  let nondegenerateFaceCount = 0;
+  let faceEdgeIncidenceCount = 0;
+  let unmodeledFaceEdgeCount = 0;
+  let outwardFaceCount = 0;
+  let minimumOutwardNormalDot = Number.POSITIVE_INFINITY;
+
+  for (const face of faces) {
+    const uniqueIds = new Set(face.vertices);
+    faceKeys.add([...face.vertices].sort((first, second) => idNumber(first) - idNumber(second)).join(":"));
+    const points = face.vertices.map((id) => positionById.get(id));
+    const hasResolvableTriangle = uniqueIds.size === 3 && points.every(Boolean);
+    if (hasResolvableTriangle) {
+      const [a, b, c] = points as [Vector3Tuple, Vector3Tuple, Vector3Tuple];
+      const unitA = scale(a, 1 / radius);
+      const unitB = scale(b, 1 / radius);
+      const unitC = scale(c, 1 / radius);
+      const normal = cross(subtract(unitB, unitA), subtract(unitC, unitA));
+      const twiceArea = magnitude(normal);
+      if (twiceArea > GEOMETRIC_EPSILON) {
+        nondegenerateFaceCount += 1;
+        const centroid = scale(add(add(unitA, unitB), unitC), 1 / 3);
+        const centroidLength = magnitude(centroid);
+        const outwardNormalDot = centroidLength > GEOMETRIC_EPSILON
+          ? dot(scale(normal, 1 / twiceArea), scale(centroid, 1 / centroidLength))
+          : -1;
+        minimumOutwardNormalDot = Math.min(minimumOutwardNormalDot, outwardNormalDot);
+        if (outwardNormalDot > GEOMETRIC_EPSILON) outwardFaceCount += 1;
+      }
+    }
+
+    for (const [start, end] of [
+      [face.vertices[0], face.vertices[1]],
+      [face.vertices[1], face.vertices[2]],
+      [face.vertices[2], face.vertices[0]],
+    ] as const) {
+      faceEdgeIncidenceCount += 1;
+      const key = idEdgeKey(start, end);
+      const incidence = faceIncidenceByEdgeKey.get(key);
+      if (incidence === undefined) unmodeledFaceEdgeCount += 1;
+      else faceIncidenceByEdgeKey.set(key, incidence + 1);
+    }
+  }
+
+  const boundaryEdges: GeodesicEdge[] = [];
+  let manifoldInteriorEdgeCount = 0;
+  let invalidEdgeIncidenceCount = Math.max(0, edges.length - edgeByKey.size);
+  for (const [key, incidence] of faceIncidenceByEdgeKey) {
+    const edge = edgeByKey.get(key)!;
+    if (incidence === 1) boundaryEdges.push(edge);
+    else if (incidence === 2) manifoldInteriorEdgeCount += 1;
+    else invalidEdgeIncidenceCount += 1;
+  }
+
+  const boundaryNeighbors = new Map<string, Set<string>>();
+  for (const edge of boundaryEdges) {
+    if (!boundaryNeighbors.has(edge.start)) boundaryNeighbors.set(edge.start, new Set());
+    if (!boundaryNeighbors.has(edge.end)) boundaryNeighbors.set(edge.end, new Set());
+    boundaryNeighbors.get(edge.start)!.add(edge.end);
+    boundaryNeighbors.get(edge.end)!.add(edge.start);
+  }
+  const boundaryDegreeErrorCount = [...boundaryNeighbors.values()]
+    .filter((neighbors) => neighbors.size !== 2).length;
+  let boundaryComponentCount = 0;
+  const visitedBoundaryIds = new Set<string>();
+  for (const startId of boundaryNeighbors.keys()) {
+    if (visitedBoundaryIds.has(startId)) continue;
+    boundaryComponentCount += 1;
+    const pending = [startId];
+    visitedBoundaryIds.add(startId);
+    while (pending.length > 0) {
+      const current = pending.pop()!;
+      for (const neighbor of boundaryNeighbors.get(current) ?? []) {
+        if (visitedBoundaryIds.has(neighbor)) continue;
+        visitedBoundaryIds.add(neighbor);
+        pending.push(neighbor);
+      }
+    }
+  }
+  const boundaryCycleCount = boundaryDegreeErrorCount === 0 ? boundaryComponentCount : 0;
+
+  return {
+    connectedComponentCount,
+    uniqueVertexCount,
+    invalidEdgeEndpointCount,
+    uniqueFaceCount: faceKeys.size,
+    nondegenerateFaceCount,
+    duplicateFaceCount: faces.length - faceKeys.size,
+    faceEdgeIncidenceCount,
+    manifoldBoundaryEdgeCount: boundaryEdges.length,
+    manifoldInteriorEdgeCount,
+    invalidEdgeIncidenceCount,
+    unmodeledFaceEdgeCount,
+    boundaryVertexCount: boundaryNeighbors.size,
+    boundaryCycleCount,
+    boundaryDegreeErrorCount,
+    outwardFaceCount,
+    minimumOutwardNormalDot: Number.isFinite(minimumOutwardNormalDot) ? minimumOutwardNormalDot : 0,
+    boundaryEdgeIds: boundaryEdges.map(({ id }) => id),
+  };
+}
+
 /**
  * Builds the mathematically derived V2 hemisphere at any positive radius.
  * IDs, ordering, topology, and floating-point calculations are deterministic.
@@ -478,7 +675,8 @@ export function buildV2Hemisphere(radius: number): V2Hemisphere {
   );
   const theoreticalBaseSide = radius * V2_LONG_CHORD_FACTOR;
   const baseSideErrors = baseEdges.map(({ length }) => Math.abs(length - theoreticalBaseSide));
-  const boundaryEdgeCount = baseEdges.length;
+  const diskEvidence = auditTriangulatedDisk(vertices, edges, faces, radius);
+  const boundaryEdgeCount = diskEvidence.manifoldBoundaryEdgeCount;
   const strutEndpointCount = edges.length * 2;
   const hubPortCount = vertices.reduce((total, vertex) => total + vertex.valence, 0);
   const eulerCharacteristic = vertices.length - edges.length + faces.length;
@@ -495,6 +693,40 @@ export function buildV2Hemisphere(radius: number): V2Hemisphere {
   const maxBasePlaneError = max(basePlaneErrors);
   const maxEdgeClassError = max(edgeClassErrors);
   const maxBaseSideError = max(baseSideErrors);
+  const isConnected =
+    diskEvidence.uniqueVertexCount === vertices.length &&
+    diskEvidence.invalidEdgeEndpointCount === 0 &&
+    diskEvidence.connectedComponentCount === 1;
+  const hasUniqueNondegenerateFaces =
+    diskEvidence.uniqueFaceCount === faces.length &&
+    diskEvidence.nondegenerateFaceCount === faces.length &&
+    diskEvidence.duplicateFaceCount === 0;
+  const hasManifoldEdgeIncidence =
+    diskEvidence.invalidEdgeIncidenceCount === 0 &&
+    diskEvidence.unmodeledFaceEdgeCount === 0 &&
+    diskEvidence.manifoldBoundaryEdgeCount + diskEvidence.manifoldInteriorEdgeCount === edges.length &&
+    diskEvidence.faceEdgeIncidenceCount === faces.length * 3 &&
+    diskEvidence.faceEdgeIncidenceCount ===
+      diskEvidence.manifoldBoundaryEdgeCount + 2 * diskEvidence.manifoldInteriorEdgeCount;
+  const hasSingleClosedBoundary =
+    boundaryEdgeCount > 0 &&
+    diskEvidence.boundaryVertexCount === boundaryEdgeCount &&
+    diskEvidence.boundaryCycleCount === 1 &&
+    diskEvidence.boundaryDegreeErrorCount === 0;
+  const hasOutwardWinding =
+    diskEvidence.outwardFaceCount === faces.length &&
+    diskEvidence.minimumOutwardNormalDot > GEOMETRIC_EPSILON;
+  const topologicalBoundaryEdgeIdSet = new Set(diskEvidence.boundaryEdgeIds);
+  const baseMatchesTopologicalBoundary =
+    baseEdgeIds.length === diskEvidence.boundaryEdgeIds.length &&
+    baseEdgeIds.every((id) => topologicalBoundaryEdgeIdSet.has(id));
+  const isTriangulatedDisk =
+    eulerCharacteristic === 1 &&
+    isConnected &&
+    hasUniqueNondegenerateFaces &&
+    hasManifoldEdgeIncidence &&
+    hasSingleClosedBoundary &&
+    hasOutwardWinding;
 
   const audit: GeodesicAudit = {
     counts: {
@@ -510,6 +742,22 @@ export function buildV2Hemisphere(radius: number): V2Hemisphere {
       boundaryEdgeCount,
       strutEndpointCount,
       hubPortCount,
+      connectedComponentCount: diskEvidence.connectedComponentCount,
+      uniqueVertexCount: diskEvidence.uniqueVertexCount,
+      invalidEdgeEndpointCount: diskEvidence.invalidEdgeEndpointCount,
+      uniqueFaceCount: diskEvidence.uniqueFaceCount,
+      nondegenerateFaceCount: diskEvidence.nondegenerateFaceCount,
+      duplicateFaceCount: diskEvidence.duplicateFaceCount,
+      faceEdgeIncidenceCount: diskEvidence.faceEdgeIncidenceCount,
+      manifoldBoundaryEdgeCount: diskEvidence.manifoldBoundaryEdgeCount,
+      manifoldInteriorEdgeCount: diskEvidence.manifoldInteriorEdgeCount,
+      invalidEdgeIncidenceCount: diskEvidence.invalidEdgeIncidenceCount,
+      unmodeledFaceEdgeCount: diskEvidence.unmodeledFaceEdgeCount,
+      boundaryVertexCount: diskEvidence.boundaryVertexCount,
+      boundaryCycleCount: diskEvidence.boundaryCycleCount,
+      boundaryDegreeErrorCount: diskEvidence.boundaryDegreeErrorCount,
+      outwardFaceCount: diskEvidence.outwardFaceCount,
+      minimumOutwardNormalDot: diskEvidence.minimumOutwardNormalDot,
     },
     tolerances: {
       geometric: GEOMETRIC_EPSILON * Math.max(1, radius),
@@ -522,11 +770,17 @@ export function buildV2Hemisphere(radius: number): V2Hemisphere {
       maxBaseSide: maxBaseSideError,
     },
     checks: {
-      isTriangulatedDisk: eulerCharacteristic === 1 && boundaryEdgeCount === 10,
+      isTriangulatedDisk,
+      isConnected,
+      hasUniqueNondegenerateFaces,
+      hasManifoldEdgeIncidence,
+      hasSingleClosedBoundary,
+      hasOutwardWinding,
       hasPlanarBase: maxBasePlaneError <= GEOMETRIC_EPSILON * Math.max(1, radius),
       hasRegularDecagonBase:
         baseVertexIds.length === 10 &&
         baseEdges.length === 10 &&
+        baseMatchesTopologicalBoundary &&
         maxBaseSideError <= GEOMETRIC_EPSILON * Math.max(1, radius),
       hasBalancedConnections: strutEndpointCount === hubPortCount,
       hasTwoEdgeClasses:
@@ -534,6 +788,10 @@ export function buildV2Hemisphere(radius: number): V2Hemisphere {
         maxEdgeClassError <= LENGTH_CLASS_TOLERANCE,
     },
   };
+
+  if (!audit.checks.isTriangulatedDisk) {
+    throw new Error("Generated frequency-2 hemisphere failed its triangulated-disk audit.");
+  }
 
   return {
     radius,

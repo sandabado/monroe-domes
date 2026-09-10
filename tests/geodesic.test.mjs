@@ -30,8 +30,50 @@ test("builds the audited frequency-2 hemispherical topology", () => {
   assert.equal(dome.audit.topology.boundaryEdgeCount, 10);
   assert.equal(dome.audit.topology.strutEndpointCount, 130);
   assert.equal(dome.audit.topology.hubPortCount, 130);
+  assert.deepEqual(
+    {
+      connectedComponentCount: dome.audit.topology.connectedComponentCount,
+      uniqueVertexCount: dome.audit.topology.uniqueVertexCount,
+      invalidEdgeEndpointCount: dome.audit.topology.invalidEdgeEndpointCount,
+      uniqueFaceCount: dome.audit.topology.uniqueFaceCount,
+      nondegenerateFaceCount: dome.audit.topology.nondegenerateFaceCount,
+      duplicateFaceCount: dome.audit.topology.duplicateFaceCount,
+      faceEdgeIncidenceCount: dome.audit.topology.faceEdgeIncidenceCount,
+      manifoldBoundaryEdgeCount: dome.audit.topology.manifoldBoundaryEdgeCount,
+      manifoldInteriorEdgeCount: dome.audit.topology.manifoldInteriorEdgeCount,
+      invalidEdgeIncidenceCount: dome.audit.topology.invalidEdgeIncidenceCount,
+      unmodeledFaceEdgeCount: dome.audit.topology.unmodeledFaceEdgeCount,
+      boundaryVertexCount: dome.audit.topology.boundaryVertexCount,
+      boundaryCycleCount: dome.audit.topology.boundaryCycleCount,
+      boundaryDegreeErrorCount: dome.audit.topology.boundaryDegreeErrorCount,
+      outwardFaceCount: dome.audit.topology.outwardFaceCount,
+    },
+    {
+      connectedComponentCount: 1,
+      uniqueVertexCount: 26,
+      invalidEdgeEndpointCount: 0,
+      uniqueFaceCount: 40,
+      nondegenerateFaceCount: 40,
+      duplicateFaceCount: 0,
+      faceEdgeIncidenceCount: 120,
+      manifoldBoundaryEdgeCount: 10,
+      manifoldInteriorEdgeCount: 55,
+      invalidEdgeIncidenceCount: 0,
+      unmodeledFaceEdgeCount: 0,
+      boundaryVertexCount: 10,
+      boundaryCycleCount: 1,
+      boundaryDegreeErrorCount: 0,
+      outwardFaceCount: 40,
+    },
+  );
+  closeTo(dome.audit.topology.minimumOutwardNormalDot, 0.999468099212803, 1e-12);
   assert.deepEqual(dome.audit.checks, {
     isTriangulatedDisk: true,
+    isConnected: true,
+    hasUniqueNondegenerateFaces: true,
+    hasManifoldEdgeIncidence: true,
+    hasSingleClosedBoundary: true,
+    hasOutwardWinding: true,
     hasPlanarBase: true,
     hasRegularDecagonBase: true,
     hasBalancedConnections: true,
@@ -113,8 +155,10 @@ test("emits unique manifold faces, edges, IDs, and outward winding", () => {
     dome.edges.map((edge) => [[edge.start, edge.end].sort().join(":"), edge.id]),
   );
 
+  const canonicalFaceKeys = new Set();
   for (const face of dome.faces) {
     assert.equal(new Set(face.vertices).size, 3);
+    canonicalFaceKeys.add([...face.vertices].sort().join(":"));
     const [a, b, c] = face.vertices.map((id) => byId.get(id));
     assert.ok(a && b && c);
     const ab = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
@@ -124,6 +168,7 @@ test("emits unique manifold faces, edges, IDs, and outward winding", () => {
       ab[2] * ac[0] - ab[0] * ac[2],
       ab[0] * ac[1] - ab[1] * ac[0],
     ];
+    assert.ok(Math.hypot(...normal) > 0);
     const centroid = [
       (a[0] + b[0] + c[0]) / 3,
       (a[1] + b[1] + c[1]) / 3,
@@ -141,11 +186,61 @@ test("emits unique manifold faces, edges, IDs, and outward winding", () => {
       incidences.set(edgeId, incidences.get(edgeId) + 1);
     }
   }
+  assert.equal(canonicalFaceKeys.size, dome.faces.length);
 
   const baseEdgeSet = new Set(dome.baseEdgeIds);
   for (const [id, incidence] of incidences) {
     assert.equal(incidence, baseEdgeSet.has(id) ? 1 : 2);
   }
+
+  const neighbors = new Map(dome.vertices.map(({ id }) => [id, new Set()]));
+  for (const edge of dome.edges) {
+    neighbors.get(edge.start).add(edge.end);
+    neighbors.get(edge.end).add(edge.start);
+  }
+  const visited = new Set([dome.vertices[0].id]);
+  const pending = [dome.vertices[0].id];
+  while (pending.length > 0) {
+    const current = pending.pop();
+    for (const neighbor of neighbors.get(current)) {
+      if (visited.has(neighbor)) continue;
+      visited.add(neighbor);
+      pending.push(neighbor);
+    }
+  }
+  assert.equal(visited.size, dome.vertices.length);
+
+  const boundaryEdges = dome.edges.filter(({ id }) => incidences.get(id) === 1);
+  const boundaryNeighbors = new Map();
+  for (const edge of boundaryEdges) {
+    if (!boundaryNeighbors.has(edge.start)) boundaryNeighbors.set(edge.start, new Set());
+    if (!boundaryNeighbors.has(edge.end)) boundaryNeighbors.set(edge.end, new Set());
+    boundaryNeighbors.get(edge.start).add(edge.end);
+    boundaryNeighbors.get(edge.end).add(edge.start);
+  }
+  assert.equal(boundaryNeighbors.size, boundaryEdges.length);
+  assert.ok([...boundaryNeighbors.values()].every((adjacent) => adjacent.size === 2));
+  const visitedBoundary = new Set([boundaryEdges[0].start]);
+  const pendingBoundary = [boundaryEdges[0].start];
+  while (pendingBoundary.length > 0) {
+    const current = pendingBoundary.pop();
+    for (const neighbor of boundaryNeighbors.get(current)) {
+      if (visitedBoundary.has(neighbor)) continue;
+      visitedBoundary.add(neighbor);
+      pendingBoundary.push(neighbor);
+    }
+  }
+  assert.equal(visitedBoundary.size, boundaryNeighbors.size);
+
+  assert.equal(dome.audit.topology.connectedComponentCount, 1);
+  assert.equal(dome.audit.topology.uniqueFaceCount, canonicalFaceKeys.size);
+  assert.equal(dome.audit.topology.nondegenerateFaceCount, dome.faces.length);
+  assert.equal(dome.audit.topology.faceEdgeIncidenceCount, dome.faces.length * 3);
+  assert.equal(dome.audit.topology.manifoldBoundaryEdgeCount, boundaryEdges.length);
+  assert.equal(dome.audit.topology.manifoldInteriorEdgeCount, dome.edges.length - boundaryEdges.length);
+  assert.equal(dome.audit.topology.boundaryVertexCount, boundaryNeighbors.size);
+  assert.equal(dome.audit.topology.boundaryCycleCount, 1);
+  assert.equal(dome.audit.topology.outwardFaceCount, dome.faces.length);
 });
 
 test("is deterministic, scales linearly, and rejects invalid radii", () => {
@@ -161,6 +256,11 @@ test("is deterministic, scales linearly, and rejects invalid radii", () => {
     closeTo(fullScale[1], unitScale[1] * 72);
     closeTo(fullScale[2], unitScale[2] * 72);
   }
+  closeTo(
+    first.audit.topology.minimumOutwardNormalDot,
+    unit.audit.topology.minimumOutwardNormalDot,
+    1e-12,
+  );
 
   assert.throws(() => buildV2Hemisphere(0), RangeError);
   assert.throws(() => buildV2Hemisphere(-1), RangeError);

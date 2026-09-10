@@ -10,6 +10,7 @@ import re
 import subprocess
 from pathlib import Path
 
+import reportlab
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_LEFT
 from reportlab.lib.pagesizes import letter
@@ -50,17 +51,23 @@ WHITE = colors.white
 def register_fonts() -> tuple[str, str, str]:
     avenir = Path("/System/Library/Fonts/Avenir Next.ttc")
     mono = Path("/System/Library/Fonts/SFNSMono.ttf")
+    reportlab_fonts = Path(reportlab.__file__).resolve().parent / "fonts"
     try:
         pdfmetrics.registerFont(TTFont("AvenirNext", str(avenir), subfontIndex=7))
         pdfmetrics.registerFont(TTFont("AvenirNextDemi", str(avenir), subfontIndex=2))
         sans, bold = "AvenirNext", "AvenirNextDemi"
     except Exception:
-        sans, bold = "Helvetica", "Helvetica-Bold"
+        # ReportLab's bundled Vera faces keep the fallback portable and embedded;
+        # never silently fall back to the unembedded PDF core fonts.
+        pdfmetrics.registerFont(TTFont("FieldSans", str(reportlab_fonts / "Vera.ttf")))
+        pdfmetrics.registerFont(TTFont("FieldSansBold", str(reportlab_fonts / "VeraBd.ttf")))
+        sans, bold = "FieldSans", "FieldSansBold"
     try:
         pdfmetrics.registerFont(TTFont("SFMono", str(mono)))
         mono_name = "SFMono"
     except Exception:
-        mono_name = "Courier"
+        pdfmetrics.registerFont(TTFont("FieldMonoFallback", str(reportlab_fonts / "Vera.ttf")))
+        mono_name = "FieldMonoFallback"
     return sans, bold, mono_name
 
 
@@ -116,7 +123,8 @@ def assert_model_contract() -> None:
     panel_types = {item["type"]: item for item in MODEL["panelConcept"]["types"]}
     entrance = MODEL["entrance"]
     platform = MODEL["platform"]
-    assert MODEL["project"]["revision"] == "07"
+    redesign = MODEL["redesign"]
+    assert MODEL["project"]["revision"] == "08"
     assert MODEL["handoff"]["company"] == "Black Belt Building"
     assert (counts["vertices"], counts["edges"], counts["faces"]) == (26, 65, 40)
     assert (counts["struts"]["S"], counts["struts"]["L"]) == (30, 35)
@@ -130,6 +138,13 @@ def assert_model_contract() -> None:
     assert platform["diameterInches"] == 192
     assert platform["radialApronBeyondDomeNodesInches"] == 24
     assert math.isclose(platform["flatApronInches"], 22.825356391083684, abs_tol=1e-9)
+    assert (
+        redesign["sampledRollStartDegrees"],
+        redesign["sampledRollEndDegrees"],
+        redesign["sampledRollIncrementDegrees"],
+        redesign["sampledRollPositionCount"],
+    ) == (0, 90, 1, 91)
+    assert redesign["externalMemberEnvelopeLengthInches"] == 6
 
 
 assert_model_contract()
@@ -157,6 +172,10 @@ styles.add(ParagraphStyle(
     spaceBefore=8, spaceAfter=5,
 ))
 styles.add(ParagraphStyle(
+    name="H2Tight", fontName=BOLD, fontSize=11.5, leading=13, textColor=INK,
+    spaceBefore=4, spaceAfter=3,
+))
+styles.add(ParagraphStyle(
     name="BodyA", fontName=SANS, fontSize=10.5, leading=13.8, textColor=INK,
     spaceAfter=6,
 ))
@@ -165,7 +184,7 @@ styles.add(ParagraphStyle(
     spaceAfter=4,
 ))
 styles.add(ParagraphStyle(
-    name="MonoA", fontName=MONO, fontSize=9.5, leading=11.8, textColor=INK,
+    name="MonoA", fontName=MONO, fontSize=10, leading=12.4, textColor=INK,
     spaceAfter=4,
 ))
 styles.add(ParagraphStyle(
@@ -189,10 +208,10 @@ styles.add(ParagraphStyle(
     spaceBefore=3, spaceAfter=5,
 ))
 styles.add(ParagraphStyle(
-    name="DenseCell", fontName=MONO, fontSize=9, leading=9.2, textColor=INK,
+    name="DenseCell", fontName=MONO, fontSize=9.25, leading=9.7, textColor=INK,
 ))
 styles.add(ParagraphStyle(
-    name="DenseHead", fontName=BOLD, fontSize=9, leading=9.2, textColor=WHITE,
+    name="DenseHead", fontName=BOLD, fontSize=9.25, leading=9.7, textColor=WHITE,
 ))
 
 
@@ -319,6 +338,17 @@ def draw_legend(c, x, y):
     c.drawString(x + 136, y, "SHORT")
     draw_member_line(c, (x + 200, y + 3), (x + 236, y + 3), "L", 1.2)
     c.drawString(x + 242, y, "LONG")
+
+
+def draw_compact_legend(c, x, y):
+    """Small, redundant key for grayscale plan/elevation printing."""
+    draw_member_line(c, (x, y + 3), (x + 25, y + 3), "S", 1.0)
+    c.setFillColor(INK)
+    c.setFont(BOLD, 8)
+    c.drawString(x + 30, y, "S SHORT")
+    draw_member_line(c, (x + 82, y + 3), (x + 107, y + 3), "L", 1.0)
+    c.setFillColor(INK)
+    c.drawString(x + 112, y, "L LONG")
 
 
 def draw_cover_axon(c, x, y, w, h):
@@ -761,6 +791,7 @@ def draw_plan(c, x, y, w, h):
     c.setFont(SANS, 9)
     c.setFillColor(GRAY)
     c.drawRightString(x + w - 8, y + 18, "V017 DATUM: +18 DEG FROM +X")
+    draw_compact_legend(c, x + 8, y + 7)
     c.restoreState()
 
 
@@ -797,19 +828,22 @@ def draw_elevation(c, x, y, w, h):
     c.setFillColor(GRAY)
     c.setFont(SANS, 9)
     c.drawString(x + 8, y + 7, "Base node plane: Y = 0.000 in")
+    draw_compact_legend(c, x + 8, y + 19)
     c.restoreState()
 
 
 def draw_redesign(c, x, y, w, h):
-    draw_frame(c, x, y, w, h, "J-301  PORT-NORMAL HUB ENVELOPE - SPATIAL CLEARANCE ONLY")
+    draw_frame(c, x, y, w, h, "J-301  GENERIC SINGLE-PORT SECTION - SPATIAL CLEARANCE ONLY")
     envelope = MODEL["redesign"]["hubEnvelope"]
     q_min = -envelope["radialInboard"]
     q_max = envelope["radialOutboard"]
     q_split = envelope["radialSplit"]
     slab_left = x + 32
     slab_right = x + w - 32
-    slab_bottom = y + 58
-    slab_top = y + h - 58
+    # Keep the section readable in a compact field-sheet figure while leaving
+    # dedicated bands for the title, shoulder annotations, and q datums.
+    slab_bottom = y + 46
+    slab_top = y + h - 46
     q_scale = (slab_right - slab_left) / (q_max - q_min)
     split_x = slab_left + (q_split - q_min) * q_scale
     c.saveState()
@@ -848,11 +882,11 @@ def draw_redesign(c, x, y, w, h):
     c.restoreState()
     c.setFillColor(INK)
     c.setFont(BOLD, 9)
-    c.drawRightString(x + w - 14, y + h - 24, "SHOULDER FACE NORMAL TO MEMBER AXIS")
+    c.drawRightString(x + w - 14, y + h - 21, "SHOULDER FACE NORMAL TO MEMBER AXIS")
     c.setFont(SANS, 9)
-    c.drawRightString(x + w - 14, y + h - 38, "TENON + OVERSIZED POCKET ENVELOPE")
+    c.drawRightString(x + w - 14, y + h - 34, "TENON + OVERSIZED POCKET ENVELOPE")
 
-    dim_y = y + 36
+    dim_y = y + 28
     c.setStrokeColor(INK)
     c.setLineWidth(0.45)
     c.line(slab_left, dim_y, slab_right, dim_y)
@@ -865,7 +899,7 @@ def draw_redesign(c, x, y, w, h):
     c.drawRightString(slab_right + 8, dim_y + 4, f"q {q_max:+.3f}")
     c.setFillColor(RED)
     c.setFont(BOLD, 9)
-    c.drawCentredString(x + w / 2, y + 14, "SCHEMATIC DATUM RELATIONSHIP - NOT A JOINT DETAIL")
+    c.drawCentredString(x + w / 2, y + 9, "SCHEMATIC DATUM RELATIONSHIP - NOT A JOINT DETAIL")
     c.restoreState()
 
 
@@ -1132,12 +1166,12 @@ def build_story():
 
     story += [
         P("J-301 / PORT-NORMAL CLEARANCE", "Eyebrow"),
-        P("Spatial fit is closed; structural design is open", "H1A"),
+        P("Tested digital envelopes clear; structural design open", "H1A"),
         P("Each shoulder face is normal to its member axis at one fixed setback. The two-shell body and pocket volumes are explicit digital envelopes, not selected or capacity-checked joinery.", "Deck"),
-        status_band("CURRENT JOINT STUDY", "SPATIAL CLEARANCE VERIFIED - STRUCTURAL REVIEW OPEN", "study"),
-        Spacer(1, 7),
-        DrawingBlock("redesign", 6.7 * inch, 2.25 * inch),
-        Spacer(1, 5),
+        status_band("CURRENT JOINT STUDY", "TESTED ENVELOPES CLEAR - STRUCTURAL REVIEW OPEN", "study"),
+        Spacer(1, 4),
+        DrawingBlock("redesign", 6.7 * inch, 2.0 * inch),
+        Spacer(1, 3),
         table([
             ["INPUT", "VALUE", "AUDIT MEANING"],
             ["Shoulder", f"Axis-normal at S = {redesign_config['shoulderSetback']:.3f} in", "Fixed port datum"],
@@ -1146,28 +1180,35 @@ def build_story():
             ["Pocket envelope", f"{redesign_pocket['length']:.3f} x {redesign_pocket['width']:.3f} x {redesign_pocket['thickness']:.3f} in", "Collision envelope; not fit tolerance"],
             ["Radial slab", f"q = {-redesign_hub['radialInboard']:.3f} to +{redesign_hub['radialOutboard']:.3f} in", "Two 1.500 in shells split at q = -1.000"],
             ["Member roll", redesign["selectedRoll"], "Fixed study condition"],
+            ["Sampled roll domain", f"{redesign['sampledRollStartDegrees']} to {redesign['sampledRollEndDegrees']} DEG / {redesign['sampledRollIncrementDegrees']} DEG steps", f"{redesign['sampledRollPositionCount']} positions; robustness study"],
         ], [1.25 * inch, 2.45 * inch, 3.0 * inch], compact=True),
-        Spacer(1, 5),
+        Spacer(1, 3),
         table([
             ["CLEARANCE CHECK", "RESULT", "MINIMUM"],
-            ["Sampled pocket pairs", f"{redesign['sampledPocketCollisions']} / {redesign['sampledPairTests']:,} collide", f"{redesign['minimumSampledPocketSeparation']:.6f} in"],
-            ["Sampled member pairs", f"{redesign['sampledMemberCollisions']} / {redesign['sampledMemberPairTests']:,} collide", f"{redesign['minimumSampledMemberSeparation']:.6f} in"],
+            [f"Pocket pairs / {redesign['sampledRollPositionCount']} rolls", f"{redesign['sampledPocketCollisions']} / {redesign['sampledPairTests']:,} collide", f"{redesign['minimumSampledPocketSeparation']:.6f} in"],
+            [f"{redesign['externalMemberEnvelopeLengthInches']:.0f} in member proxies / {redesign['sampledRollPositionCount']} rolls", f"{redesign['sampledMemberCollisions']} / {redesign['sampledMemberPairTests']:,} collide", f"{redesign['minimumSampledMemberSeparation']:.6f} in"],
             ["Continuous pocket bound", f"{redesign['continuousRollPocketCollisions']} / {redesign['continuousRollPocketPairTests']} collide", f"{redesign['minimumContinuousRollPocketSeparation']:.6f} in"],
             ["Continuous member bound", f"{redesign['continuousRollMemberCollisions']} / {redesign['continuousRollMemberPairTests']} collide", f"{redesign['minimumContinuousRollMemberSeparation']:.6f} in"],
             ["Pocket split", "Every pocket crosses q = -1", f"{redesign['minimumPocketSplitPenetration']:.6f} in each side"],
             ["Shoulder to other faces", "Every modeled shoulder fits", f"{redesign['minimumShoulderToOtherFaceClearance']:.6f} in"],
         ], [2.2 * inch, 2.35 * inch, 2.15 * inch], compact=True),
-        Spacer(1, 5),
-        P("SUPERSEDED HISTORY: The earlier untrimmed 1.5 x 1.25 x 0.5 in tenon-box layout intersected at every tested H4, H5, and H6 pair. It was rejected and is not a fabrication option.", "SmallA"),
-        P("No mortise fit, retention, ligament, grain, adhesive, tolerance, moisture, strength, load, assembly, or durability approval is issued.", "Warn"),
+        Spacer(1, 3),
+        P(f"TEST DOMAIN: {redesign['sampledPairTests']:,} = {redesign['continuousRollPocketPairTests']} installed port pairs x {redesign['sampledRollPositionCount']} one-degree rolls. The {redesign['externalMemberEnvelopeLengthInches']:.3f} in full-section proxies begin at each shoulder; they are not complete timbers.", "SmallA"),
+        P("TFEC SCOPE: These dimensions establish no TFEC 1-2019 standard tension-loaded wood-peg detail in the modeled 1.500 x 1.500 in section. Shear-loaded or alternative connections require separate engineering and test evidence.", "SmallA"),
+        P("RELEASE BOUNDARY: The superseded untrimmed 1.5 x 1.25 x 0.5 in tenon boxes intersected at every tested H4, H5, and H6 pair and remain rejected. No fit, retention, ligament, grain, adhesive, tolerance, moisture, strength, load, assembly, or durability approval is issued.", "Warn"),
         PageBreak(),
     ]
 
-    assumption_text = "<br/>".join(f"- {item}" for item in MODEL["modelAssumptions"])
+    assumptions = MODEL["modelAssumptions"]
+    assumption_text = (
+        "<b>Geometry:</b> " + " ".join(assumptions[index] for index in (0, 1, 2, 8))
+        + "<br/><b>Clearance model:</b> " + " ".join(assumptions[index] for index in (3, 4, 5, 6))
+        + "<br/><b>Outside this model:</b> " + assumptions[7]
+    )
     story += [
         P("R-001 / RELEASE GATE + AUDIT TRACE", "Eyebrow"),
         P("What Jantz can trust - and what remains open", "H1A"),
-        P("Rev 07 consolidates the complete digital reference for Black Belt Building without converting planning geometry into construction authorization.", "Deck"),
+        P(f"Rev {REVISION} consolidates the complete digital reference for Black Belt Building without converting planning geometry into construction authorization.", "BodyA"),
         table([
             ["VERIFIED / RECORDED", "OPEN / WITHHELD"],
             ["Class-I 2V topology, node coordinates, 65 axes, two chord classes, 26 node valences, and 40 face incidences.", "Structural loads, member capacity, buckling, connection capacity, anchorage, foundation, code, permit, and occupancy."],
@@ -1175,18 +1216,19 @@ def build_story():
             ["Entrance affected-set adjacency and 36 x 58 in visual opening envelope.", "Replacement shell load path, reinforcement, joints, door, threshold, egress, guards, and weather enclosure."],
             ["192 in platform spatial geometry, apron relationships, frame/support counts, and approach alignment.", "Joist/support sizing, bearing, footings, guards, all-wood joint dimensions, isolation, durability, and acoustic tuning."],
         ], [3.35 * inch, 3.35 * inch], compact=True),
-        Spacer(1, 8),
-        P("Model assumptions", "H2A"),
+        Spacer(1, 4),
+        P("Model assumptions", "H2Tight"),
         P(assumption_text, "SmallA"),
-        P("Next gate", "H2A"),
+        P("Next gate", "H2Tight"),
         P("Confirm actual stock, species and grade, service moisture and exposure, site loads and occupancy, foundation and anchorage, hub material and layup, retention, assembly sequence, weather enclosure, acoustics, and tooling. Then complete exact solids, ligament and grain checks, engineered capacity calculations, a full-scale prototype/test program, and an explicit fabrication release.", "BodyA"),
-        P("References + trace", "H2A"),
+        P("References + trace", "H2Tight"),
         P("Canonical sources: lib/geodesic.ts, lib/joinery.ts, and lib/spec.ts. Serialized by scripts/export_pdf_data.mjs; rendered by scripts/generate_audit_pdf.py. Model-data SHA-256: " + MODEL_DIGEST + ".", "SmallA"),
-        P("Live accessible model: <link href='https://monroe-domes.vercel.app/'>monroe-domes.vercel.app</link>. Timber reference: <link href='https://www.tfguild.org/timber-frame-engineering-council/standards'>TFEC standards</link>. Project-specific engineering remains required.", "SmallA"),
+        P("Live accessible model: <link href='https://monroe-domes.vercel.app/'>monroe-domes.vercel.app</link>. Timber reference: <link href='https://www.tfguild.org/timber-frame-engineering-council/standards/view/104/download'>TFEC 1-2019, Section 3.4 tension-joint provisions</link>. Project-specific engineering remains required.", "SmallA"),
         dense_table([
             ["REVISION", "DATE", "RECORD"],
             ["06", "2026-08-27", "Core centerline and joint-clearance audit"],
-            ["07", "2026-08-29", "Black Belt Building field reference: parts, panels, entrance, platform, and current release gate"],
+            ["07", "2026-08-29", "Field reference: parts, panels, entrance, and platform"],
+            ["08", "2026-09-09", "Explicit test domain, safer CSV, stronger audit, and 3V reference"],
         ], [0.8 * inch, 1.25 * inch, 4.65 * inch]),
         Spacer(1, 2),
         P("NO APPROVAL OR SIGNATURE BLOCK. REFERENCE STUDY ONLY.", "Warn"),
@@ -1200,6 +1242,9 @@ def enhance_pdf(path: Path) -> None:
         raise RuntimeError(f"Expected {PAGE_COUNT} pages, generated {len(reader.pages)}.")
     writer = PdfWriter()
     writer.clone_document_from_reader(reader)
+    # ReportLab/Platypus does not emit marked-content IDs or a semantic
+    # structure tree. Language, outlines, reading-order tabs, and link text are
+    # useful navigation metadata, but intentionally are not presented as PDF/UA.
     writer.root_object.update({
         NameObject("/Lang"): TextStringObject("en-US"),
         NameObject("/PageMode"): NameObject("/UseOutlines"),
@@ -1237,6 +1282,20 @@ def enhance_pdf(path: Path) -> None:
             else:
                 description = "Open referenced source"
             annotation[NameObject("/Contents")] = TextStringObject(description)
+        for resource_name, font_ref in fonts.items():
+            font = font_ref.get_object()
+            descendants = font.get("/DescendantFonts", [])
+            font_candidates = [font] + [item.get_object() for item in descendants]
+            descriptors = [
+                candidate.get("/FontDescriptor").get_object()
+                for candidate in font_candidates
+                if candidate.get("/FontDescriptor") is not None
+            ]
+            if not descriptors or not any(
+                any(key in descriptor for key in ("/FontFile", "/FontFile2", "/FontFile3"))
+                for descriptor in descriptors
+            ):
+                raise RuntimeError(f"Font {resource_name} on page {index + 1} is not embedded.")
     writer.add_metadata({
         "/Title": f"Black Belt Building - 12 FT 2V Wood Dome - Rev {REVISION} Field Reference",
         "/Author": "Whole Body",

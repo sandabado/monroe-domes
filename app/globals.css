@@ -74,7 +74,7 @@ input:focus-visible {
 .cad-brand { display: inline-flex; align-items: center; gap: 12px; justify-self: start; min-height: 44px; }
 .cad-mark { width: 40px; height: 40px; display: grid; place-items: center; border: 1px solid var(--green); color: var(--green-strong); font-size: 20px; }
 .cad-brand > span:last-child { display: grid; gap: 2px; }
-.cad-brand h1 { margin: 0; font: 700 14px/1.2 var(--mono); letter-spacing: 0.08em; }
+.cad-brand h1, .cad-brand-title { margin: 0; font: 700 14px/1.2 var(--mono); letter-spacing: 0.08em; }
 .cad-brand small { color: var(--muted); font: 500 13px/1.2 var(--mono); }
 .model-status { min-height: 44px; display: flex; align-items: center; gap: 9px; color: var(--muted); font: 600 14px/1 var(--mono); }
 .model-status strong { color: var(--green-strong); }
@@ -215,6 +215,7 @@ input:focus-visible {
 
 /* Humanist architectural labels; monospaced type remains reserved for IDs and measurements. */
 .cad-brand h1,
+.cad-brand-title,
 .model-status,
 .top-actions button,
 .panel-heading,
@@ -419,7 +420,7 @@ input:focus-visible {
   :root { --header-height: 64px; }
   .cad-topbar { grid-template-columns: 1fr auto; gap: 10px; padding-inline: 12px; }
   .model-status { display: none; }
-  .cad-brand h1, .cad-brand small { font-size: 13px; }
+  .cad-brand h1, .cad-brand-title, .cad-brand small { font-size: 13px; }
   .top-actions button { min-width: 44px; padding-inline: 10px; }
   .viewport-panel { grid-template-rows: 164px minmax(0, 1fr); }
   .viewport-toolbar { padding: 10px 12px; grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: 40px 96px; align-items: stretch; gap: 8px 10px; }
@@ -463,7 +464,7 @@ input:focus-visible {
 @media (max-width: 520px) {
   .cad-mark { width: 36px; height: 36px; }
   .cad-brand { gap: 8px; }
-  .cad-brand h1 { letter-spacing: .03em; }
+  .cad-brand h1, .cad-brand-title { letter-spacing: .03em; }
   .cad-brand small { display: none; }
   .top-actions button { padding-inline: 8px; font-size: 13px; }
   .viewport-title strong { font-size: 13px; }
@@ -907,7 +908,7 @@ input:focus-visible {
   }
   .cad-brand { min-width: 0; gap: 8px; }
   .cad-mark { width: 34px; height: 34px; flex: 0 0 auto; }
-  .cad-brand h1 { overflow: hidden; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+  .cad-brand h1, .cad-brand-title { overflow: hidden; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
   .cad-brand small { display: none; }
   .top-actions { gap: 0; }
   .top-actions .jantsz-note-trigger { display: none; }
@@ -1125,4 +1126,190 @@ input:focus-visible {
   .schedule-panel,
   .view-drawer { height: min(70dvh, 330px); max-height: 70dvh; }
   .cad-grid[data-panel-open] { grid-template-rows: minmax(170px, 58%) minmax(0, 42%); }
+}
+
+/* Separate, capability-gated 2V / 3V geometry routes. */
+.cad-brand-button {
+  padding: 0;
+  border: 0;
+  color: inherit;
+  background: transparent;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.model-route-switch {
+  min-height: 44px;
+  display: inline-flex;
+  align-items: stretch;
+  border: 1px solid var(--line);
+  background: var(--panel);
+}
+.model-route-switch > a,
+.model-route-switch > span {
+  min-width: 44px;
+  min-height: 44px;
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 850;
+  line-height: 1;
+}
+.model-route-switch > * + * { border-left: 1px solid var(--line); }
+.model-route-switch > [aria-current="page"] { color: #171006; background: var(--amber-light); }
+.model-route-switch > a:hover { color: var(--text); background: var(--panel-3); }
+
+.model-choice-section { background: radial-gradient(circle at 100% 0, rgba(225,173,104,.08), transparent 54%); }
+.model-choice-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.model-choice-card {
+  min-height: 86px;
+  padding: 11px;
+  display: grid;
+  align-content: center;
+  gap: 4px;
+  border: 1px solid var(--line);
+  color: var(--muted);
+  background: var(--panel-2);
+}
+.model-choice-card span { color: var(--amber-light); font-size: 11px; font-weight: 850; letter-spacing: .05em; }
+.model-choice-card strong { color: var(--text); font-size: 15px; }
+.model-choice-card small { color: var(--quiet); font-size: 11px; line-height: 1.35; }
+a.model-choice-card:hover,
+.model-choice-card.active { border-color: var(--green); background: rgba(168,197,157,.09); }
+.model-choice-note { margin: 10px 0 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
+
+.v3-cad-app .model-viewport { background: #010302; }
+.v3-cad-app .model-viewport::after { background: radial-gradient(circle at 50% 46%, transparent 38%, rgba(0,0,0,.28) 70%, rgba(0,0,0,.8) 120%); }
+.v3-cad-app .viewport-overview-card { border-color: rgba(225,173,104,.32); }
+.v3-legend i.v3-a,
+.v3-class-a .parts-piece i { background: #edc789; }
+.v3-legend i.v3-b,
+.v3-class-b .parts-piece i { background: #cf914f; }
+.v3-legend i.v3-c,
+.v3-class-c .parts-piece i { background: #a76435; }
+
+.v3-member-columns { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.v3-parts-layout .parts-piece { min-width: 0; }
+.v3-parts-layout .parts-piece b { white-space: nowrap; }
+.v3-count-warning { border-color: rgba(225,173,104,.5); background: rgba(225,173,104,.08); }
+.v3-panel-inventory { margin-top: 14px; }
+.v3-family-pent { border-top: 2px solid #c07a3f; }
+.v3-family-hex { border-top: 2px solid #86502e; }
+.v3-family-pent .panel-piece i { background: #c07a3f; }
+.v3-family-hex .panel-piece i { background: #86502e; }
+
+.v3-member-filters { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.v3-member-filters button { min-width: 0; padding-inline: 4px; }
+
+.v3-audit-drawer {
+  height: min(72vh, 740px);
+  grid-template-rows: 58px auto minmax(0, 1fr);
+}
+.v3-audit-actions {
+  padding: 9px 14px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  border-bottom: 1px solid var(--line);
+  background: #0d120e;
+}
+.v3-audit-actions button,
+.v3-selected-member button {
+  min-height: 44px;
+  padding: 0 13px;
+  border: 1px solid var(--line);
+  color: var(--text);
+  background: var(--panel-2);
+  font-size: 13px;
+  font-weight: 800;
+  cursor: pointer;
+}
+.v3-audit-actions button:hover,
+.v3-selected-member button:hover { border-color: var(--green); background: rgba(168,197,157,.1); }
+.v3-audit-scroll { min-height: 0; overflow-y: auto; padding-bottom: 22px; }
+.v3-audit-intro,
+.v3-source-boundary,
+.v3-data-section,
+.v3-selected-member { margin: 14px 16px 0; padding: 17px; border: 1px solid var(--line); background: #101611; }
+.v3-audit-intro { border-color: rgba(168,197,157,.44); background: rgba(168,197,157,.06); }
+.v3-source-boundary { border-color: rgba(225,173,104,.46); background: rgba(225,173,104,.06); }
+.v3-selected-member { border-color: var(--amber); background: rgba(225,173,104,.08); }
+.v3-audit-intro > p,
+.v3-source-boundary > p,
+.v3-data-section > p,
+.v3-selected-member > p { margin: 0 0 7px; color: var(--green-strong); font-size: 11px; font-weight: 850; letter-spacing: .09em; }
+.v3-source-boundary > p,
+.v3-selected-member > p { color: var(--amber-light); }
+.v3-audit-intro h2,
+.v3-source-boundary h2,
+.v3-data-section h2,
+.v3-selected-member h2 { margin: 0 0 9px; font-size: 20px; line-height: 1.2; }
+.v3-audit-intro > span,
+.v3-source-boundary > span,
+.v3-source-boundary > strong { display: block; color: var(--muted); font-size: 14px; line-height: 1.55; }
+.v3-source-boundary > strong { margin-top: 11px; color: var(--text); }
+.v3-audit-overview { padding-top: 14px; padding-bottom: 0; }
+.v3-audit-overview > section:first-child { border-color: rgba(168,197,157,.4); background: rgba(168,197,157,.05); }
+.v3-class-table { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.v3-class-table > div { min-height: 94px; padding: 12px; display: grid; align-content: center; gap: 4px; border: 1px solid var(--line-soft); background: rgba(3,6,4,.52); }
+.v3-class-table strong { color: var(--amber-light); font-size: 17px; }
+.v3-class-table span,
+.v3-class-table small { color: var(--muted); font-size: 12px; line-height: 1.35; }
+.v3-class-table b { font: 750 13px/1.3 var(--mono); }
+.v3-release-list,
+.v3-selected-member dl { margin: 0; }
+.v3-release-list > div,
+.v3-selected-member dl > div { min-height: 42px; display: flex; align-items: center; gap: 14px; border-bottom: 1px solid var(--line-soft); }
+.v3-release-list dt,
+.v3-selected-member dt { color: var(--muted); font-size: 13px; text-transform: capitalize; }
+.v3-release-list dd,
+.v3-selected-member dd { margin-left: auto; color: var(--text); font: 750 12px/1.35 var(--mono); text-align: right; }
+.v3-data-section ul { margin: 0; padding-left: 20px; }
+.v3-data-section li { color: var(--muted); font-size: 13px; line-height: 1.55; }
+.v3-data-section li + li { margin-top: 8px; }
+.v3-selected-member button { width: 100%; margin-top: 13px; }
+
+@media (max-width: 1060px) and (min-width: 861px) {
+  .top-actions .jantsz-note-trigger { display: none; }
+  .model-route-switch > [aria-current="page"] { display: none; }
+  .model-route-switch > * + * { border-left: 0; }
+  .cad-brand small { display: none; }
+  .v3-member-columns { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 940px) and (min-width: 861px) {
+  .cad-mark { display: none; }
+}
+
+@media (max-width: 860px) {
+  .model-route-switch > [aria-current="page"] { display: none; }
+  .model-route-switch > * + * { border-left: 0; }
+  .v3-audit-trigger { display: none; }
+  .v3-member-columns { grid-template-columns: 1fr; }
+  .v3-audit-drawer { height: min(64dvh, 600px); }
+  .v3-class-table { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 520px) {
+  .model-route-switch > a { min-width: 44px; padding-inline: 5px; }
+  .model-choice-grid { grid-template-columns: 1fr 1fr; }
+  .model-choice-card { min-height: 80px; padding: 9px; }
+  .model-choice-card small { font-size: 10px; }
+  .v3-audit-actions { display: grid; grid-template-columns: 1fr 1fr; padding: 8px 10px; }
+  .v3-audit-actions button { min-width: 0; padding-inline: 6px; font-size: 11px; line-height: 1.2; }
+  .v3-audit-intro,
+  .v3-source-boundary,
+  .v3-data-section,
+  .v3-selected-member { margin: 10px 10px 0; padding: 13px; }
+  .v3-audit-intro h2,
+  .v3-source-boundary h2,
+  .v3-data-section h2,
+  .v3-selected-member h2 { font-size: 17px; }
+  .v3-release-list > div,
+  .v3-selected-member dl > div { align-items: flex-start; flex-direction: column; gap: 3px; padding: 8px 0; }
+  .v3-release-list dd,
+  .v3-selected-member dd { margin-left: 0; text-align: left; }
+  .v3-cad-app .top-actions { flex: 0 0 auto; }
 }

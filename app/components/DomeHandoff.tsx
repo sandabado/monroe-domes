@@ -2,8 +2,13 @@
 
 import dynamic from "next/dynamic";
 import Image from "next/image";
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type { AuditHubValence, LayerState, MemberFilter, ViewMode } from "./DomeScene";
+import {
+  makeV2CenterlineMemberCsv,
+  V2_CENTERLINE_CSV_DOWNLOAD_NAME,
+} from "@/lib/memberCsv";
 import {
   DOME_MODEL,
   ENTRANCE_STUDY,
@@ -162,27 +167,6 @@ function memberOrientation(member: DomeMember) {
   return { bearing, slope };
 }
 
-function makeMemberCsv() {
-  const rows = [["piece_id", "edge_id", "class", "centerline_inches", "chord_factor", "start_node", "end_node", "bearing_deg", "slope_deg", "material", "modeled_section_inches"]];
-  for (const member of MEMBERS) {
-    const orientation = memberOrientation(member);
-    rows.push([
-      member.pieceId,
-      member.id,
-      member.type,
-      member.length.toFixed(6),
-      member.chordFactor.toFixed(12),
-      member.start,
-      member.end,
-      orientation.bearing.toFixed(3),
-      orientation.slope.toFixed(3),
-      MATERIAL.species,
-      "1.5 x 1.5",
-    ]);
-  }
-  return rows.map((row) => row.join(",")).join("\n");
-}
-
 function LayerControl({
   layer,
   visible,
@@ -290,8 +274,8 @@ function Inspector({
         <div><dt>Chord factor</dt><dd>{member.chordFactor.toFixed(9)} R</dd></div>
         <div><dt>Start hub</dt><dd>{member.start} · {start?.valence}-way</dd></div>
         <div><dt>End hub</dt><dd>{member.end} · {end?.valence}-way</dd></div>
-        <div><dt>Axis bearing</dt><dd>{orientation.bearing.toFixed(2)}°</dd></div>
-        <div><dt>Axis slope</dt><dd>{orientation.slope.toFixed(2)}°</dd></div>
+        <div><dt>Plan bearing</dt><dd>{orientation.bearing.toFixed(2)}° clockwise from +Z</dd></div>
+        <div><dt>Rise angle</dt><dd>{orientation.slope.toFixed(2)}° above horizontal</dd></div>
         <div><dt>Modeled section</dt><dd>{MATERIAL.modeledSection}</dd></div>
         <div><dt>Material</dt><dd>{MATERIAL.species}</dd></div>
       </dl>
@@ -618,7 +602,11 @@ export default function DomeHandoff() {
   };
 
   const exportCsv = () => {
-    downloadFile(`${PROJECT.id.toLowerCase()}-centerline-members.csv`, makeMemberCsv(), "text/csv");
+    downloadFile(
+      V2_CENTERLINE_CSV_DOWNLOAD_NAME,
+      makeV2CenterlineMemberCsv(),
+      "text/csv;charset=utf-8",
+    );
     notify("csv");
   };
 
@@ -750,7 +738,7 @@ export default function DomeHandoff() {
   const domeModeActive = isDomeView(viewMode);
   const woodShellActive = domeModeActive && layers.panels;
   const currentDomeViewLabel = DOME_VIEWS.find((view) => view.key === viewMode)?.short ?? "3D";
-  const modeLabel = viewMode === "joinery" ? "Joint clearance" : viewMode === "parts" ? "Parts layout" : viewMode === "platform" ? "Entrance + deck" : viewMode === "site" ? "Site context" : woodShellActive ? `Wood shell · ${currentDomeViewLabel}` : `Exposed frame · ${currentDomeViewLabel}`;
+  const modeLabel = viewMode === "joinery" ? "2V · Joint" : viewMode === "parts" ? "2V · Parts" : viewMode === "platform" ? "2V · Entry" : viewMode === "site" ? "2V · Site" : woodShellActive ? `2V · Shell · ${currentDomeViewLabel}` : `2V · Frame · ${currentDomeViewLabel}`;
   const viewportKicker = viewMode === "joinery" ? "JOINT / CLEARANCE" : viewMode === "parts" ? "PARTS / LAYOUT" : viewMode === "platform" ? "ENTRY / PLATFORM" : viewMode === "site" ? "SITE / PHOTO STUDY" : woodShellActive ? "DOME / WOOD SHELL" : `DOME / ${viewMode === "iso" ? "3D" : viewMode.toUpperCase()}`;
   const viewportMeasure = viewMode === "joinery" ? `H${auditHubValence} DIGITAL STUDY` : viewMode === "parts" ? "65 TIMBERS · 26 NODES · 40 FACES" : viewMode === "platform" ? `${ENTRANCE_STUDY.clearWidthInches} × ${ENTRANCE_STUDY.clearRiseInches} IN CLEAR STUDY` : viewMode === "site" ? "DOME EXACT · SITE APPROX" : woodShellActive ? `${DOME_MODEL.faces.length} WOOD PANELS · VISUAL` : `${PROJECT.diameterInches} IN NODE-CENTER Ø`;
   const visibleStatus = viewMode === "joinery"
@@ -783,6 +771,9 @@ export default function DomeHandoff() {
         <a className="cad-brand" href="#top" aria-label="Return to the complete Black Belt Building isometric dome" onClick={(event) => { event.preventDefault(); resetExperience(); }}><span className="cad-mark" aria-hidden="true">△</span><span><h1>{HANDOFF.company.toUpperCase()}</h1><small>{HANDOFF.preparedFor.toUpperCase()} · {PROJECT.id} · REV {PROJECT.revision}</small></span></a>
         <div className="model-status" role="status" aria-label={`${auditPassed ? "Dome centerline geometry verified" : "Dome geometry failed"}; ${redesignClearanceVerified ? "joint spatial clearance verified in the digital model only, structure and fabrication not approved" : "joint interference found"}`}><span className={auditPassed ? "pass-dot" : "fail-dot"} /><strong>{auditPassed ? "CENTERLINE VERIFIED" : "MODEL FAILED"}</strong><span className="study-state"><i className={redesignClearanceVerified ? "study-dot" : "fail-dot"} />{redesignClearanceVerified ? "JOINT CLEARANCE · DIGITAL ONLY" : "JOINT CHECK FAILED"}</span></div>
         <div className="top-actions">
+          <nav className="model-route-switch" aria-label="Choose dome geometry">
+            <span aria-current="page">2V</span><Link href="/3v">3V</Link>
+          </nav>
           <button ref={reviewNoteButtonRef} type="button" className="jantsz-note-trigger" aria-label="Read Jantz review note" onClick={() => setMessageOpen(true)}><span className="review-note-full">Review note</span><span className="review-note-short" aria-hidden="true">NOTE</span></button>
           <a
             className="pdf-download"
@@ -927,6 +918,14 @@ export default function DomeHandoff() {
         {activePanel === "view" ? (
           <aside className="layers-panel workbench-drawer view-drawer" id="view-drawer" tabIndex={-1} aria-label="Explore the dome project">
             <div className="panel-heading"><span>EXPLORE</span><button type="button" onClick={() => closePanel("view")} aria-label="Close Explore menu">×</button></div>
+            <section className="control-section model-choice-section" aria-labelledby="model-choice-title">
+              <div className="section-heading"><h2 id="model-choice-title">Choose dome geometry</h2></div>
+              <div className="model-choice-grid">
+                <div className="model-choice-card active" aria-current="page"><span>2V · 12 FT</span><strong>Hemisphere</strong><small>Current field reference · 65 axes</small></div>
+                <Link href="/3v" className="model-choice-card"><span>3V · 12 FT 8 IN</span><strong>5/8 cap</strong><small>Separate audited geometry · 165 axes</small></Link>
+              </div>
+              <p className="model-choice-note">Each option keeps its own math and release boundary. The 2V PDF, joinery, entrance, platform, and site studies do not apply to 3V.</p>
+            </section>
             <section className="control-section" aria-labelledby="mode-drawer-heading">
               <div className="section-heading"><h2 id="mode-drawer-heading">What do you want to see?</h2></div>
               <div className="drawer-choice-grid experience-choice-grid" role="group" aria-label="Experience view">
@@ -1046,7 +1045,7 @@ export default function DomeHandoff() {
                 {SCHEDULE_TABS.map((tab) => <button key={tab} id={`schedule-tab-${tab}`} type="button" role="tab" tabIndex={scheduleTab === tab ? 0 : -1} aria-selected={scheduleTab === tab} aria-controls="schedule-tab-panel" className={scheduleTab === tab ? "active" : ""} onClick={() => setScheduleTab(tab)} onKeyDown={(event) => handleScheduleTabKeyDown(event, tab)}>{tab === "summary" ? "Summary" : tab === "members" ? `Members / ${MEMBERS.length}` : tab === "hubs" ? `Nodes / ${DOME_MODEL.vertices.length}` : tab === "joinery" ? "Joint study" : "Geometry checks"}</button>)}
               </div>
               {scheduleTab === "members" ? <label className="member-search"><span>Search pieces or nodes</span><input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="S-01, V012…" /></label> : null}
-              <div className="schedule-exports"><button type="button" onClick={exportCsv}>Export CSV</button><button type="button" onClick={exportJson}>Audit JSON</button></div>
+              <div className="schedule-exports"><button type="button" onClick={exportCsv}>Node-center CSV</button><button type="button" onClick={exportJson}>Audit JSON</button></div>
             </div>
             <div className="schedule-scroll" id="schedule-tab-panel" role="tabpanel" aria-labelledby={`schedule-tab-${scheduleTab}`}>
               {scheduleTab === "summary" ? (
@@ -1056,7 +1055,7 @@ export default function DomeHandoff() {
                   <AuditSummary /><JoinerySummary />
                 </div>
               ) : null}
-              {scheduleTab === "members" ? <table className="data-table member-table"><caption>All individual modeled members. Lengths are verified node-center chords, not finished cuts.</caption><thead><tr><th>Member ID</th><th>Class</th><th>Centerline</th><th>Start</th><th>End</th><th>Slope</th><th>Status</th></tr></thead><tbody>{filteredMembers.map((member) => { const orientation = memberOrientation(member); return <tr key={member.pieceId} className={selectedMemberId === member.pieceId ? "selected" : ""}><td><button type="button" aria-pressed={selectedMemberId === member.pieceId} onClick={() => chooseMember(member.pieceId)}>{member.pieceId}</button></td><td>{member.type === "S" ? "Short" : "Long"}</td><td>{member.length.toFixed(3)} in</td><td>{member.start}</td><td>{member.end}</td><td>{orientation.slope.toFixed(2)}°</td><td><span className="derived-status">Centerline verified</span></td></tr>; })}</tbody></table> : null}
+              {scheduleTab === "members" ? <table className="data-table member-table"><caption>All individual modeled members. Lengths are verified node-center chords, not finished cuts. Rise angle is the unsigned angle above the horizontal plane.</caption><thead><tr><th>Member ID</th><th>Class</th><th>Centerline</th><th>Start</th><th>End</th><th>Rise angle</th><th>Status</th></tr></thead><tbody>{filteredMembers.map((member) => { const orientation = memberOrientation(member); return <tr key={member.pieceId} className={selectedMemberId === member.pieceId ? "selected" : ""}><td><button type="button" aria-pressed={selectedMemberId === member.pieceId} onClick={() => chooseMember(member.pieceId)}>{member.pieceId}</button></td><td>{member.type === "S" ? "Short" : "Long"}</td><td>{member.length.toFixed(3)} in</td><td>{member.start}</td><td>{member.end}</td><td>{orientation.slope.toFixed(2)}°</td><td><span className="derived-status">Centerline verified</span></td></tr>; })}</tbody></table> : null}
               {scheduleTab === "hubs" ? <table className="data-table"><caption>All nodes and their topologically derived valence.</caption><thead><tr><th>Node</th><th>Node class</th><th>Location</th><th>X</th><th>Y / height</th><th>Z</th></tr></thead><tbody>{DOME_MODEL.vertices.map((vertex) => <tr key={vertex.id}><td>{vertex.id}</td><td>{vertex.valence}-way</td><td>{vertex.isBase ? "Base" : vertex.position[1] === PROJECT.radiusInches ? "Apex" : "Interior"}</td><td>{vertex.position[0].toFixed(3)} in</td><td>{vertex.position[1].toFixed(3)} in</td><td>{vertex.position[2].toFixed(3)} in</td></tr>)}</tbody></table> : null}
               {scheduleTab === "joinery" ? (
                 <div className="joinery-audit-grid">
@@ -1070,13 +1069,13 @@ export default function DomeHandoff() {
                       <div><dt>Exact hub footprints</dt><dd>{REDESIGN_STUDY.bodyFamilies.map((family) => `${family.id} ${family.maximumPlanarDiameter.toFixed(3)}`).join(" · ")} in max planar diameter</dd></div>
                       <div><dt>Tenon study</dt><dd>{REDESIGN_STUDY.joinery.tenon.length.toFixed(3)} × {REDESIGN_STUDY.joinery.tenon.width.toFixed(3)} × {REDESIGN_STUDY.joinery.tenon.thickness.toFixed(3)} in</dd></div>
                       <div><dt>Oversized pocket test</dt><dd>{REDESIGN_STUDY.pocketEnvelope.length.toFixed(3)} × {REDESIGN_STUDY.pocketEnvelope.width.toFixed(3)} × {REDESIGN_STUDY.pocketEnvelope.thickness.toFixed(3)} in</dd></div>
-                      <div><dt>Member roll</dt><dd>{REDESIGN_STUDY.selectedRoll} · fixed study condition</dd></div>
+                      <div><dt>Member roll</dt><dd>{REDESIGN_STUDY.selectedRoll}</dd></div>
                       <div><dt>H4 base condition</dt><dd>{REDESIGN_STUDY.hubEnvelope.h4ClosureBelowDatum.toFixed(3)} in below node datum · recess or raised datum required</dd></div>
                     </dl>
                   </section>
                   <section>
                     <h2>Exact clearance record</h2>
-                    <p><strong>{REDESIGN_STUDY.sampledPocketCollisions} of {REDESIGN_STUDY.sampledPairTests.toLocaleString()}</strong> sampled pocket pairs overlap. Minimum sampled separating-axis margin: <strong>{REDESIGN_STUDY.minimumSampledPocketSeparation.toFixed(3)} in</strong>. Full 1.5 × 1.5 in member envelopes also record {REDESIGN_STUDY.externalMemberCollisions} collisions across {REDESIGN_STUDY.externalMemberPairTests.toLocaleString()} sampled pair checks.</p>
+                    <p><strong>{REDESIGN_STUDY.sampledPocketCollisions} of {REDESIGN_STUDY.sampledPairTests.toLocaleString()}</strong> sampled pocket-pair tests overlap: {REDESIGN_STUDY.continuousRollPocketPairTests} installed port pairs at {REDESIGN_STUDY.sampledRollPositionCount} roll positions, from {REDESIGN_STUDY.sampledRollStartDegrees}° through {REDESIGN_STUDY.sampledRollEndDegrees}° in {REDESIGN_STUDY.sampledRollIncrementDegrees}° steps. Minimum sampled separating-axis margin: <strong>{REDESIGN_STUDY.minimumSampledPocketSeparation.toFixed(3)} in</strong>. The 1.5 × 1.5 in section checks use only {REDESIGN_STUDY.externalMemberEnvelopeLengthInches.toFixed(3)} in shoulder-outward envelopes—not complete timbers—and record {REDESIGN_STUDY.externalMemberCollisions} collisions across {REDESIGN_STUDY.externalMemberPairTests.toLocaleString()} sampled pair tests.</p>
                     <dl>
                       <div><dt>Continuous-roll pocket bound</dt><dd>{REDESIGN_STUDY.continuousRollPocketCollisions}/{REDESIGN_STUDY.continuousRollPocketPairTests} collisions · {REDESIGN_STUDY.minimumContinuousRollPocketSeparation.toFixed(3)} in minimum gap</dd></div>
                       <div><dt>Split through every pocket</dt><dd>{REDESIGN_STUDY.minimumPocketSplitPenetration.toFixed(3)} in minimum penetration on both sides</dd></div>
@@ -1095,7 +1094,7 @@ export default function DomeHandoff() {
                   </section>
                   <section>
                     <h2>Why this is not yet a joint detail</h2>
-                    <p>A standard pegged mortise-and-tenon detail is unavailable in 1.500 × 1.500 in dressed stock. Capture, cross-key, and clamp geometry are spatial studies only. Retention, hub layup, grain, adhesive, mortise fit, assembly sequence, moisture behavior, loads, anchorage, prototype evidence, and engineering approval remain unset.</p>
+                    <p>The stated dimensions do not establish a TFEC-standard tension-loaded wood-peg detail within the modeled 1.500 × 1.500 in section, so this release specifies no peg. Other mortise-and-tenon or retention concepts require their own engineering and test evidence. Capture, cross-key, and clamp geometry are spatial studies only. Retention, hub layup, grain, adhesive, mortise fit, assembly sequence, moisture behavior, loads, anchorage, prototype evidence, and engineering approval remain unset.</p>
                   </section>
                   <section>
                     <h2>Release boundary</h2>
