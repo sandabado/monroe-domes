@@ -10,7 +10,7 @@ import {
   PerspectiveCamera,
 } from "@react-three/drei";
 import { Canvas, type ThreeEvent, useThree } from "@react-three/fiber";
-import { memo, Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { memo, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState, type ElementRef, type RefObject } from "react";
 import * as THREE from "three";
 import { DOME_MODEL_3V, MEMBERS_3V, PANELS_3V, type DomeMember3V } from "@/lib/spec3v";
 import type { V3StrutType } from "@/lib/geodesic3v";
@@ -217,18 +217,31 @@ function DimensionLayer() {
   );
 }
 
-function CameraRig({ viewMode, azimuthStep, zoom, resetNonce }: Pick<SceneProps, "viewMode" | "azimuthStep" | "zoom" | "resetNonce">) {
+type OrbitControlsHandle = ElementRef<typeof OrbitControls>;
+
+function CameraRig({
+  viewMode,
+  azimuthStep,
+  zoom,
+  resetNonce,
+  controls,
+}: Pick<SceneProps, "viewMode" | "azimuthStep" | "zoom" | "resetNonce"> & {
+  controls: RefObject<OrbitControlsHandle | null>;
+}) {
   const perspective = useRef<THREE.PerspectiveCamera>(null);
   const orthographic = useRef<THREE.OrthographicCamera>(null);
   const { size } = useThree();
   const isOrthographic = viewMode !== "iso";
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const target = new THREE.Vector3(0, 3.35, 0);
     if (!isOrthographic && perspective.current) {
       const angle = Math.PI / 4 + azimuthStep * Math.PI / 12;
       const aspect = size.width / Math.max(size.height, 1);
-      const fit = aspect < 1 ? Math.max(23.5, 20.5 * Math.max(1, 0.9 / aspect)) : 21;
+      // Keep the complete dome legible on portrait screens while using the
+      // small safety margin as composition space instead of dead letterboxing.
+      const portraitFit = 20.5 * Math.max(1, 0.9 / aspect) * 0.97;
+      const fit = aspect < 1 ? Math.max(23.5, portraitFit) : 21;
       const distance = fit / zoom;
       perspective.current.position.set(Math.sin(angle) * distance, distance * 0.54, Math.cos(angle) * distance);
       perspective.current.lookAt(target);
@@ -245,7 +258,11 @@ function CameraRig({ viewMode, azimuthStep, zoom, resetNonce }: Pick<SceneProps,
       orthographic.current.lookAt(target);
       orthographic.current.updateProjectionMatrix();
     }
-  }, [azimuthStep, isOrthographic, resetNonce, size.height, size.width, viewMode, zoom]);
+    if (controls.current) {
+      controls.current.target.copy(target);
+      controls.current.update();
+    }
+  }, [azimuthStep, controls, isOrthographic, resetNonce, size.height, size.width, viewMode, zoom]);
 
   return (
     <>
@@ -323,6 +340,7 @@ function Assembly(props: SceneProps) {
 
 function DomeScene3V(props: SceneProps) {
   const [webglUnavailable, setWebglUnavailable] = useState(false);
+  const controls = useRef<OrbitControlsHandle>(null);
 
   useEffect(() => {
     const probe = document.createElement("canvas");
@@ -350,7 +368,7 @@ function DomeScene3V(props: SceneProps) {
           onPointerMissed={() => props.onSelectMember(null)}
           fallback={null}
         >
-          <CameraRig viewMode={props.viewMode} azimuthStep={props.azimuthStep} zoom={props.zoom} resetNonce={props.resetNonce} />
+          <CameraRig viewMode={props.viewMode} azimuthStep={props.azimuthStep} zoom={props.zoom} resetNonce={props.resetNonce} controls={controls} />
           <color attach="background" args={["#020403"]} />
           <fog attach="fog" args={["#020403", props.mobileLayout ? 38 : 22, props.mobileLayout ? 72 : 42]} />
           <hemisphereLight args={["#e1e4d8", "#010201", 1.08]} />
@@ -362,6 +380,7 @@ function DomeScene3V(props: SceneProps) {
             <ContactShadows position={[0, -0.04, 0]} opacity={0.46} scale={15} blur={2.5} far={10} frames={1} />
           </Suspense>
           <OrbitControls
+            ref={controls}
             makeDefault
             target={[0, 3.35, 0]}
             enableRotate={props.viewMode === "iso"}
