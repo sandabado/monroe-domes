@@ -338,7 +338,7 @@ function DomeScene3V(props: SceneProps) {
         role="img"
         aria-label={props.layers.panels
           ? "Interactive 3D Class-I frequency-3 five-eighths dome with 105 gross triangular faces behind 165 unique member axes. Panels, axis prisms, and node markers are schematic display proxies with arbitrary visual thickness—not finished parts or a weather enclosure."
-          : "Interactive 3D Class-I frequency-3 five-eighths dome with 165 unique member axes, 61 nodes, and 105 faces. The axis prisms and node markers use arbitrary visual thickness and are not physical part designs. Open Parts or Audit for keyboard-accessible geometry data."}
+          : "Interactive 3D Class-I frequency-3 five-eighths dome with 165 unique member axes, 61 nodes, and 105 faces. The axis prisms and node markers use arbitrary visual thickness and are not physical part designs. Open Geometry inventory or Audit for keyboard-accessible geometry data."}
       >
         <Canvas
           aria-hidden="true"

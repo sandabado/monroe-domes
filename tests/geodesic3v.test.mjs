@@ -7,12 +7,15 @@ import {
   buildV3FiveEighthsDome,
 } from "../lib/geodesic3v.ts";
 import {
+  CONSTRUCTION_HOLDS_3V,
   DOME_MODEL_3V,
   MEMBERS_3V,
   PANEL_FAMILIES_3V,
   PANELS_3V,
   PROJECT_3V,
+  REFERENCE_SYSTEMS_3V,
   SOURCE_PLAN_3V,
+  THREE_V_RELEASE_BOUNDARY,
 } from "../lib/spec3v.ts";
 
 function closeTo(actual, expected, tolerance = 1e-9) {
@@ -117,11 +120,36 @@ test("reconciles the two canonical face families without publishing cut sizes", 
     { family: "PENT", classSignature: "AAB", count: 30 },
     { family: "HEX", classSignature: "BCC", count: 75 },
   ]);
+  const [pentFamily, hexFamily] = PANEL_FAMILIES_3V;
+  assert.equal(pentFamily.baseClass, "B");
+  assert.equal(hexFamily.baseClass, "B");
+  closeTo(pentFamily.baseLengthInches, 31.313722096661344, 1e-9);
+  closeTo(pentFamily.grossHeightInches, 22.059649374295724, 1e-9);
+  closeTo(hexFamily.baseLengthInches, 31.31372209666134, 1e-9);
+  closeTo(hexFamily.grossHeightInches, 27.909805109273513, 1e-9);
   assert.ok(MEMBERS_3V.every(({ status }) => status.includes("NOT A FINISHED CUT")));
   assert.ok(PANELS_3V.every(({ status }) => status.includes("NOT A FINISHED PANEL")));
 
   const reported = SOURCE_PLAN_3V.reportedComponentCounts;
   assert.equal(reported.fullHexPanels + (reported.rightDoorHalfPanels + reported.leftDoorHalfPanels) / 2, 75);
   assert.equal(reported.pentPanels, 30);
-  assert.equal(reported.panelFrameStruts, DOME_MODEL_3V.audit.topology.faceEdgeIncidences);
+  assert.equal(reported.panelFrameEdgePieces, DOME_MODEL_3V.audit.topology.faceEdgeIncidences);
+});
+
+test("keeps geometric axes separate from the unresolved panel-frame schedule", () => {
+  assert.equal(PROJECT_3V.status, "GEOMETRY VERIFIED · CONSTRUCTION PACKAGE INCOMPLETE");
+  assert.deepEqual(REFERENCE_SYSTEMS_3V.map(({ id, count }) => ({ id, count })), [
+    { id: "geometry-skeleton", count: 165 },
+    { id: "source-panel-method", count: 315 },
+  ]);
+  assert.match(REFERENCE_SYSTEMS_3V[0].status, /NOT CUT LENGTHS/);
+  assert.match(REFERENCE_SYSTEMS_3V[1].status, /CUTS WITHHELD/);
+  assert.match(SOURCE_PLAN_3V.reconciliation, /doorway-piece allocation remains unresolved/i);
+  assert.match(SOURCE_PLAN_3V.dimensionCrossCheck, /A −0\.011337 in/);
+  assert.match(SOURCE_PLAN_3V.dimensionCrossCheck, /not machining accuracy or fabrication tolerances/i);
+  assert.match(THREE_V_RELEASE_BOUNDARY.panelFrameMethod, /CUT SCHEDULE WITHHELD/);
+  assert.match(THREE_V_RELEASE_BOUNDARY.entrance, /DO NOT CUT/);
+  assert.match(THREE_V_RELEASE_BOUNDARY.platform, /ALL-WOOD OPTION NOT DESIGNED/);
+  assert.match(THREE_V_RELEASE_BOUNDARY.occupancy, /NOT ESTABLISHED/);
+  assert.ok(CONSTRUCTION_HOLDS_3V.every(({ status }) => status.length > 0));
 });

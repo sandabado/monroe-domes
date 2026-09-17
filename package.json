@@ -9,6 +9,7 @@
     "start": "next start",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
+    "pdf:3v": "node scripts/run_3v_pdf_generator.mjs",
     "test": "node --experimental-strip-types --test tests/*.test.mjs",
     "test:geometry": "node --experimental-strip-types --test tests/geodesic.test.mjs tests/geodesic3v.test.mjs",
     "test:joinery": "node --experimental-strip-types --test tests/joinery.test.mjs"

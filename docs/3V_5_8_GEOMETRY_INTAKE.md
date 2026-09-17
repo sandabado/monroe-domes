@@ -9,6 +9,13 @@
 **Issue:** mathematical reference only—not released for fabrication, structure,
 weather enclosure, occupancy, permitting, or assembly
 
+**Printable field companion:**
+[`black-belt-building-3v-geometry-field-reference-intake-01.pdf`](../public/downloads/black-belt-building-3v-geometry-field-reference-intake-01.pdf)
+packages the independently verified geometry, schedules, source reconciliation,
+construction holds, and requests for information for Jantz. It is a geometry +
+RFI field reference—not a fabrication drawing, finished-member schedule, or cut
+list.
+
 ## 1. Separation from the existing 2V reference
 
 The 12 ft 2V hemisphere at `/` remains the default Black Belt Building dome
@@ -108,19 +115,29 @@ For a different sphere radius \(R\), each chord is its listed factor times
 shoulder datums, tenon or connector depths, stock dimensions, bevels, tolerances,
 material condition, and an assembly sequence.
 
+Against the private plan's rounded chord values, the independent residuals are
+A −0.011337 in, B +0.001222 in, and C +0.001477 in. A blanket ±0.0015 in claim
+is therefore false. These are source-reconciliation differences, not machining
+accuracy, cut tolerance, or evidence that a physical system has been verified.
+
 ## 5. Gross triangular face families
 
-| Sector family | Face signature | Count | Gross node-center side lengths |
-| --- | --- | ---: | --- |
-| Pentagon sector | A-A-B | 30 | 27.051163162, 27.051163162, 31.313722097 in |
-| Hexagon sector | B-C-C | 75 | 31.313722097, 32.001476827, 32.001476827 in |
-| **Total** | — | **105** | — |
+| Sector family | Face signature | Count | Gross node-center side lengths | B-edge base × altitude to B |
+| --- | --- | ---: | --- | --- |
+| Pentagon sector | A-A-B | 30 | 27.051163162, 27.051163162, 31.313722097 in | 31.313722097 × 22.059649374 in |
+| Hexagon sector | B-C-C | 75 | 31.313722097, 32.001476827, 32.001476827 in | 31.313722097 × 27.909805109 in |
+| **Total** | — | **105** | — | — |
 
 These are mathematical face triangles only. They do not include sheathing
 overlaps, frame width, kerfs, bevels, edge treatment, openings, drainage,
 movement gaps, membranes, or fastening. The labels “pentagon sector” and
 “hexagon sector” identify where the triangles occur in the 3V pattern; they do
-not describe five-sided or six-sided finished panels.
+not describe five-sided or six-sided finished panels. Their listed angles are
+planar interior triangle angles, not miter, bevel, compound-saw, or joinery
+settings.
+For both isosceles families, the only B edge is the declared reference base and
+the listed altitude is perpendicular to that B edge. This is gross planar
+geometry only, not a panel-cut or fabrication datum.
 
 ## 6. Boundary and envelope
 
@@ -142,7 +159,8 @@ dimension.
 
 ## 7. Private-plan and release boundary
 
-A commercial plan was supplied privately for count-level comparison. It remains
+A commercial plan was supplied privately for a limited factual cross-check of
+reported counts, rounded chord labels, and the source platform method. It remains
 private. This repository and the `/3v` route do not embed,
 redistribute, trace, or reproduce its pages, drawings, artwork, prose,
 proprietary shop layouts, or PDF. The public model is generated from the
@@ -151,6 +169,14 @@ independent icosahedral construction and audited identities recorded above.
 The private reference's reported panel-frame total can reconcile with 315 face
 sides, but that numerical agreement is not a released cut schedule, license to
 redistribute the plan, or verification of its physical construction details.
+It is a different reference system from the 165 unique node-center axes: a
+face-by-face panel method duplicates shared boundaries. Doorway-piece allocation
+is still unresolved, so neither count is published as a physical cut list.
+
+The reviewed source platform uses metal hardware and therefore does not satisfy
+the requested all-wood brief. No replacement member sizing, timber joint,
+foundation, anchorage, uplift path, or direct wood-to-concrete connection is
+approved by this audit. Those are engineering questions, not geometry outputs.
 
 The following remain explicitly open:
 

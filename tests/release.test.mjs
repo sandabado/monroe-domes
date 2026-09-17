@@ -1,12 +1,16 @@
 import assert from "node:assert/strict";
+import { execFile } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import { promisify } from "node:util";
 
 // Node's direct TypeScript runner requires source extensions in the audit tests.
 // @ts-expect-error TS5097 is intentionally suppressed because this repo does not emit a test build.
 import { HANDOFF, PROJECT } from "../lib/spec.ts";
 
 const pdfName = `black-belt-building-dome-field-reference-rev-${PROJECT.revision.toLowerCase()}.pdf`;
+const pdf3vName = "black-belt-building-3v-geometry-field-reference-intake-01.pdf";
+const execFileAsync = promisify(execFile);
 
 test("Rev 08 release identity is canonical", () => {
   assert.equal(PROJECT.revision, "08");
@@ -36,4 +40,27 @@ test("retired Rev 07 PDF is not shipped beside the current field reference", asy
       { code: "ENOENT" },
     ),
   ]);
+});
+
+test("public and source 3V geometry field-reference PDFs are identical artifacts", async () => {
+  const [source, published] = await Promise.all([
+    readFile(new URL(`../output/pdf/${pdf3vName}`, import.meta.url)),
+    readFile(new URL(`../public/downloads/${pdf3vName}`, import.meta.url)),
+  ]);
+
+  assert.equal(source.subarray(0, 5).toString(), "%PDF-");
+  assert.deepEqual(published, source);
+});
+
+test("3V PDF records the digest of the current canonical model export", async () => {
+  const { stdout } = await execFileAsync(
+    process.execPath,
+    ["--experimental-strip-types", "scripts/export_3v_pdf_data.mjs"],
+    { cwd: new URL("..", import.meta.url) },
+  );
+  const { sourceDigest } = JSON.parse(stdout);
+  const source = await readFile(new URL(`../output/pdf/${pdf3vName}`, import.meta.url));
+
+  assert.match(sourceDigest, /^[0-9a-f]{64}$/);
+  assert.equal(source.toString("latin1").includes(sourceDigest), true);
 });

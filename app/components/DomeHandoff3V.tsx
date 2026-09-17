@@ -4,12 +4,14 @@ import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import {
+  CONSTRUCTION_HOLDS_3V,
   DOME_MODEL_3V,
   MEMBERS_3V,
   MODEL_ASSUMPTIONS_3V,
   PANEL_FAMILIES_3V,
   PANELS_3V,
   PROJECT_3V,
+  REFERENCE_SYSTEMS_3V,
   SOURCE_PLAN_3V,
   THREE_V_RELEASE_BOUNDARY,
 } from "@/lib/spec3v";
@@ -41,6 +43,8 @@ function restorePanelFocus3V(panel: Exclude<Panel3V, null>, prior: HTMLElement |
 
 const REDUCED_MOTION_QUERY = "(prefers-reduced-motion: reduce)";
 const MOBILE_LAYOUT_QUERY = "(max-width: 860px)";
+const PDF_PATH_3V = "/downloads/black-belt-building-3v-geometry-field-reference-intake-01.pdf";
+const PDF_DOWNLOAD_NAME_3V = "Black-Belt-Building-3V-Geometry-Field-Reference-Intake-01.pdf";
 
 const DEFAULT_LAYERS_3V: V3LayerState = {
   timber: true,
@@ -112,14 +116,28 @@ function PartsLayout3V({ onAudit, onInspect }: { onAudit: () => void; onInspect:
     <section className="parts-layout v3-parts-layout" aria-labelledby="v3-parts-title">
       <header className="parts-layout-header">
         <div>
-          <p>3V COMPONENT GEOMETRY · BEFORE ASSEMBLY</p>
-          <h2 id="v3-parts-title">165 axes + 61 nodes + 105 gross faces</h2>
+          <p>3V GEOMETRY INVENTORY · BEFORE ASSEMBLY</p>
+          <h2 id="v3-parts-title">Verified axes, nodes, and gross faces</h2>
         </div>
         <button type="button" onClick={onAudit}>Open 3V audit</button>
       </header>
       <p className="parts-layout-boundary v3-count-warning">
-        <strong>Do not order 315 structural members from this screen.</strong> The canonical mesh has 165 unique axes. The number 315 is 3 × 105 face-edge incidences in a panel-frame counting system; shared edges are counted again for adjoining faces.
+        <strong>No construction system is selected and no cut list is available.</strong> This screen inventories 165 verified node-center axes. The source panel method reports 315 face-edge pieces because adjoining modules duplicate shared boundaries; that count is reconciled, not a verified cut schedule. Doorway pieces remain unresolved.
       </p>
+      <section className="v3-reference-systems" aria-labelledby="v3-reference-systems-title">
+        <div className="parts-group-heading"><span id="v3-reference-systems-title">TWO DIFFERENT REFERENCE SYSTEMS</span><strong>DO NOT COMBINE COUNTS</strong></div>
+        <div className="v3-reference-system-grid">
+          {REFERENCE_SYSTEMS_3V.map((system) => (
+            <article key={system.id}>
+              <p>{system.eyebrow}</p>
+              <h3>{system.label}</h3>
+              <strong>{system.count} <span>{system.unit}</span></strong>
+              <b>{system.status}</b>
+              <small>{system.detail}</small>
+            </article>
+          ))}
+        </div>
+      </section>
       <div className="parts-inventory-columns v3-member-columns">
         {classGroups.map(({ type, members }) => (
           <section className={`parts-inventory-group v3-class-${type.toLowerCase()}`} key={type} aria-label={`${members.length} class ${type} node-center axes`}>
@@ -130,7 +148,7 @@ function PartsLayout3V({ onAudit, onInspect }: { onAudit: () => void; onInspect:
                   type="button"
                   className="parts-piece"
                   key={member.pieceId}
-                  aria-label={`${member.pieceId}, class ${member.type}, ${member.length.toFixed(3)} inch node-center chord. Open audit details.`}
+                  aria-label={`${member.pieceId}, class ${member.type}, ${member.length.toFixed(3)} inch node-center chord; not a finished cut length. Open audit details.`}
                   onClick={() => onInspect(member.pieceId)}
                 >
                   <i aria-hidden="true" /><b>{member.pieceId}</b>
@@ -143,7 +161,7 @@ function PartsLayout3V({ onAudit, onInspect }: { onAudit: () => void; onInspect:
 
       <section className="panel-inventory v3-panel-inventory" aria-labelledby="v3-face-families-title">
         <div className="parts-group-heading"><span id="v3-face-families-title">GROSS FACE FAMILIES</span><strong>105 TOTAL · NODE-CENTER</strong></div>
-        <p className="panel-inventory-warning"><strong>Not panel cut dimensions.</strong> These triangles end at node axes and omit frame width, module duplication, bevels, seams, glazing, underlap, drainage, movement, doorway alterations, and weather detailing.</p>
+        <p className="panel-inventory-warning"><strong>Not panel cut dimensions.</strong> These triangles end at node axes and omit frame width, module duplication, bevels, seams, glazing, underlap, drainage, movement, doorway alterations, and weather detailing. Their planar interior angles are not saw or compound-bevel settings.</p>
         <div className="panel-family-grid">
           {PANEL_FAMILIES_3V.map((family) => (
             <section className={`panel-family v3-family-${family.family.toLowerCase()}`} key={family.family} aria-label={`${family.count} ${family.label} gross geometry references`}>
@@ -151,8 +169,8 @@ function PartsLayout3V({ onAudit, onInspect }: { onAudit: () => void; onInspect:
               <dl>
                 <div><dt>Classes</dt><dd>{family.classSignature}</dd></div>
                 <div><dt>Gross sides</dt><dd>{family.sideLengthsInches.map((side) => side.toFixed(3)).join(" / ")} in</dd></div>
-                <div><dt>Base × altitude</dt><dd>{family.baseLengthInches.toFixed(3)} × {family.grossHeightInches.toFixed(3)} in</dd></div>
-                <div><dt>Angles</dt><dd>{family.anglesDegrees.map((angle) => angle.toFixed(3)).join("° / ")}°</dd></div>
+                <div><dt>B-edge base × altitude to B</dt><dd>{family.baseLengthInches.toFixed(3)} × {family.grossHeightInches.toFixed(3)} in</dd></div>
+                <div><dt>Planar interior angles</dt><dd>{family.anglesDegrees.map((angle) => angle.toFixed(3)).join("° / ")}°</dd></div>
               </dl>
               <ol className="panel-piece-grid">
                 {PANELS_3V.filter((panel) => panel.family === family.family).map((panel) => (
@@ -280,18 +298,25 @@ export default function DomeHandoff3V() {
       : "Member selection cleared.");
   }, []);
 
+  const closePanelAfterSelection = () => {
+    const panel = activePanel;
+    const trigger = panelTriggerRef.current;
+    setActivePanel(null);
+    if (panel) window.setTimeout(() => restorePanelFocus3V(panel, trigger), 0);
+  };
+
   const selectDome = (nextView: V3ViewMode = viewMode) => {
     setDisplayMode("dome");
     setViewMode(nextView);
-    setActivePanel(null);
+    closePanelAfterSelection();
     setResetNonce((value) => value + 1);
     setAnnouncement(`${VIEW_OPTIONS_3V.find((view) => view.key === nextView)?.short ?? "3D"} 3V dome view selected.`);
   };
 
   const selectParts = () => {
     setDisplayMode("parts");
-    setActivePanel(null);
-    setAnnouncement("Accessible 3V parts geometry opened.");
+    closePanelAfterSelection();
+    setAnnouncement("Accessible 3V geometry inventory opened. These are reference axes and gross faces, not cut parts.");
   };
 
   const inspectPart = (pieceId: string) => {
@@ -345,13 +370,16 @@ export default function DomeHandoff3V() {
       model: DOME_MODEL_3V,
       members: MEMBERS_3V,
       faceFamilies: PANEL_FAMILIES_3V,
+      sourcePlanCrossCheck: SOURCE_PLAN_3V,
+      referenceSystems: REFERENCE_SYSTEMS_3V,
+      constructionHolds: CONSTRUCTION_HOLDS_3V,
     }, null, 2), "application/json");
     notify("3V geometry audit downloaded · reference only");
   };
 
   const modeLabel = displayMode === "parts"
-    ? "3V · Parts"
-    : `3V · ${layers.panels ? "Faces" : "Frame"} · ${VIEW_OPTIONS_3V.find((view) => view.key === viewMode)?.short}`;
+    ? "3V · Geometry inventory"
+    : `3V · ${layers.panels ? "Gross faces" : "Axis model"} · ${VIEW_OPTIONS_3V.find((view) => view.key === viewMode)?.short}`;
 
   return (
     <main className="cad-app v3-cad-app" id="top">
@@ -362,30 +390,40 @@ export default function DomeHandoff3V() {
           <span><span className="cad-brand-title">BLACK BELT BUILDING</span><small>JANTZ · {PROJECT_3V.id} · {PROJECT_3V.revision}</small></span>
         </button>
         <h1 className="sr-only">Black Belt Building 12 ft 8 in 3V dome reference</h1>
-        <div className="model-status" role="status" aria-label={`${auditPassed ? "3V canonical geometry verified" : "3V model failed"}; not for fabrication`}>
+        <div className="model-status" aria-label={`${auditPassed ? "3V canonical geometry verified" : "3V model failed"}; construction not released`}>
           <span className={auditPassed ? "pass-dot" : "fail-dot"} />
-          <strong>{auditPassed ? "3V CENTERLINE VERIFIED" : "3V MODEL FAILED"}</strong>
-          <span>NOT FOR FABRICATION</span>
+          <strong>{auditPassed ? "3V GEOMETRY VERIFIED" : "3V MODEL FAILED"}</strong>
+          <span>BUILD NOT RELEASED</span>
         </div>
         <div className="top-actions">
           <nav className="model-route-switch" aria-label="Choose dome geometry">
             <Link href="/">2V</Link><span aria-current="page">3V</span>
           </nav>
           <button type="button" className="v3-audit-trigger" onClick={() => openPanel("audit")}>3V data</button>
+          <a
+            className="pdf-download"
+            href={PDF_PATH_3V}
+            download={PDF_DOWNLOAD_NAME_3V}
+            type="application/pdf"
+            aria-label="Download the Black Belt Building 3V geometry and RFI field reference PDF. Not a fabrication or cut-list release."
+            onClick={() => notify("3V geometry + RFI field PDF downloaded · not a cut list")}
+          >
+            <span aria-hidden="true">↓</span><span>3V PDF<small>Geometry + RFI holds</small></span>
+          </a>
         </div>
       </header>
 
       <div className="cad-grid" data-panel-open={activePanel ?? undefined}>
         <section className="viewport-panel" aria-label="3V model viewport" aria-hidden={activePanel ? true : undefined} inert={Boolean(activePanel)}>
           <div className={`viewport-toolbar${selectedMember && displayMode === "dome" ? " has-mobile-selection" : ""}`}>
-            <div className="viewport-title"><span>{displayMode === "parts" ? "3V / PARTS" : `3V / ${viewMode === "iso" ? "3D" : viewMode.toUpperCase()}`}</span><strong>{displayMode === "parts" ? "165 AXES · 61 NODES · 105 FACES" : "152.000 IN MAX BOUNDARY-NODE SPAN"}</strong></div>
-            <div className="mobile-safety-status" role="status" aria-label="3V geometry only; not for fabrication"><strong>GEOMETRY ONLY</strong><span>NO FABRICATION</span></div>
+            <div className="viewport-title"><span>{displayMode === "parts" ? "3V / GEOMETRY INVENTORY" : `3V / ${viewMode === "iso" ? "3D" : viewMode.toUpperCase()}`}</span><strong>{displayMode === "parts" ? "165 AXES · 61 NODES · 105 FACES" : "152.000 IN MAX BOUNDARY-NODE SPAN"}</strong></div>
+            <div className="mobile-safety-status" aria-label="3V geometry verified; construction not released"><strong>GEOMETRY VERIFIED</strong><span>BUILD NOT RELEASED</span></div>
             <div className={`cad-navigation${selectedMember && displayMode === "dome" ? " has-mobile-selection" : ""}`} aria-label="3V dome controls">
               <div className="navigation-group mode-navigation">
                 <span className="navigation-label">Explore</span>
                 <div className="navigation-buttons" role="group" aria-label="3V experience view">
                   <button type="button" className={displayMode === "dome" ? "active" : ""} aria-pressed={displayMode === "dome"} onClick={() => selectDome()}>Dome</button>
-                  <button type="button" className={displayMode === "parts" ? "active" : ""} aria-pressed={displayMode === "parts"} onClick={selectParts}>Parts</button>
+                  <button type="button" className={displayMode === "parts" ? "active" : ""} aria-pressed={displayMode === "parts"} aria-label="Open 3V geometry inventory" onClick={selectParts}>Inventory</button>
                 </div>
               </div>
               <div className="navigation-group view-navigation">
@@ -399,7 +437,7 @@ export default function DomeHandoff3V() {
               </button>
               {selectedMember && displayMode === "dome" ? (
                 <>
-                  <button type="button" className="mobile-member-selection" aria-label={`Open audit details for ${selectedMember.pieceId}, ${selectedMember.length.toFixed(3)} inch node-center chord`} onClick={() => openPanel("audit")}><span>{selectedMember.pieceId}</span><strong>{selectedMember.length.toFixed(3)} IN</strong><i aria-hidden="true">AUDIT ›</i></button>
+                  <button type="button" className="mobile-member-selection" aria-label={`Open audit details for ${selectedMember.pieceId}, ${selectedMember.length.toFixed(3)} inch node-center chord; not a finished cut length`} onClick={() => openPanel("audit")}><span>{selectedMember.pieceId}</span><strong>{selectedMember.length.toFixed(3)} IN · NOT A CUT</strong><i aria-hidden="true">NODE-CENTER</i></button>
                   <button type="button" className="mobile-clear-selection" aria-label={`Clear ${selectedMember.pieceId} selection`} onClick={() => chooseMember(null)}>×</button>
                 </>
               ) : null}
@@ -431,12 +469,12 @@ export default function DomeHandoff3V() {
                   onInteractionStart={() => setAutoRotate(false)}
                   onSelectMember={chooseMember}
                 />
-                <div className="viewport-stamp"><span>SPHERE RADIUS</span><b>{DOME_MODEL_3V.sphereRadius.toFixed(3)} IN</b><span>BASE DATUM</span><b>2 LEVELS</b></div>
+                <div className="viewport-stamp"><span>SPHERE RADIUS</span><b>{DOME_MODEL_3V.sphereRadius.toFixed(3)} IN</b><span>BOUNDARY</span><b>NONPLANAR · {DOME_MODEL_3V.audit.boundary.rippleInches.toFixed(3)} IN</b></div>
                 <section className="viewport-overview-card" aria-labelledby="v3-overview-title">
                   <p>12 FT 8 IN · CLASS-I 3V · 5/8 CAP</p>
                   <h2 id="v3-overview-title">165 axes · 61 nodes · 105 faces</h2>
                   <span>Canonical centerline geometry is verified. Visual member thickness and node markers are arbitrary. Physical members, panels, doorway, pony wall, joinery, foundation, structure, weatherproofing, and fabrication are not issued.</span>
-                  <div><button type="button" onClick={() => setLayers((current) => ({ ...current, panels: !current.panels }))}>{layers.panels ? "Hide gross faces" : "Show gross faces"}</button><button type="button" onClick={selectParts}>Parts laid out</button><button type="button" onClick={() => openPanel("audit")}>Read audit</button></div>
+                  <div><button type="button" onClick={() => setLayers((current) => ({ ...current, panels: !current.panels }))}>{layers.panels ? "Hide gross faces" : "Show gross faces"}</button><button type="button" onClick={selectParts}>Geometry inventory</button><button type="button" onClick={() => openPanel("audit")}>Read audit</button></div>
                 </section>
                 <div className="viewport-legend v3-legend"><span><i className="v3-a" />A · {DOME_MODEL_3V.edgeClasses.find(({ type }) => type === "A")?.length.toFixed(3)}</span><span><i className="v3-b" />B · {DOME_MODEL_3V.edgeClasses.find(({ type }) => type === "B")?.length.toFixed(3)}</span><span><i className="v3-c" />C · {DOME_MODEL_3V.edgeClasses.find(({ type }) => type === "C")?.length.toFixed(3)}</span><span><i className="hub" />NODE</span></div>
                 <div className="viewport-mode">{selectedMember ? `${selectedMember.pieceId} SELECTED · NODE-CENTER ONLY` : "DRAG TO ROTATE · PINCH TO ZOOM · TAP A MEMBER"}</div>
@@ -452,9 +490,9 @@ export default function DomeHandoff3V() {
             <section className="control-section" aria-labelledby="v3-experience-title">
               <div className="section-heading"><h2 id="v3-experience-title">What do you want to see?</h2></div>
               <div className="drawer-choice-grid experience-choice-grid">
-                <button type="button" className={displayMode === "dome" && !layers.panels ? "active" : ""} aria-pressed={displayMode === "dome" && !layers.panels} onClick={() => { setLayers((current) => ({ ...current, panels: false })); selectDome(); }}><strong>Exposed frame</strong><span>165 unique axes</span></button>
-                <button type="button" className={displayMode === "dome" && layers.panels ? "active finish" : "finish"} aria-pressed={displayMode === "dome" && layers.panels} onClick={() => { setLayers((current) => ({ ...current, panels: true })); selectDome(); }}><strong>Gross faces</strong><span>105 geometry surfaces</span></button>
-                <button type="button" className={displayMode === "parts" ? "active" : ""} aria-pressed={displayMode === "parts"} onClick={selectParts}><strong>Parts laid out</strong><span>Field-readable inventory</span></button>
+                <button type="button" className={displayMode === "dome" && !layers.panels ? "active" : ""} aria-pressed={displayMode === "dome" && !layers.panels} onClick={() => { setLayers((current) => ({ ...current, panels: false })); selectDome(); }}><strong>Axis model</strong><span>165 unique centerlines</span></button>
+                <button type="button" className={displayMode === "dome" && layers.panels ? "active finish" : "finish"} aria-pressed={displayMode === "dome" && layers.panels} onClick={() => { setLayers((current) => ({ ...current, panels: true })); selectDome(); }}><strong>Gross face surfaces</strong><span>105 geometry triangles</span></button>
+                <button type="button" className={displayMode === "parts" ? "active" : ""} aria-pressed={displayMode === "parts"} onClick={selectParts}><strong>Geometry inventory</strong><span>Axes and gross faces · not cuts</span></button>
                 <button type="button" onClick={() => openPanel("layers")}><strong>Layers</strong><span>Visibility and filters</span></button>
                 <button type="button" onClick={() => openPanel("audit")}><strong>Audit</strong><span>Math and limits</span></button>
               </div>
@@ -472,7 +510,7 @@ export default function DomeHandoff3V() {
         {activePanel === "layers" ? (
           <aside className="layers-panel workbench-drawer" id="v3-layers-drawer" tabIndex={-1} aria-label="3V model layers">
             <div className="panel-heading"><span>3V LAYERS</span><button type="button" onClick={closePanel} aria-label="Close layers">×</button></div>
-            {displayMode === "parts" ? <section className="panel-mode-note"><strong>Parts is a fixed accessible inventory.</strong><p>Return to the dome to isolate visual layers.</p><div><button type="button" onClick={() => selectDome()}>Open whole dome</button></div></section> : (
+            {displayMode === "parts" ? <section className="panel-mode-note"><strong>Geometry inventory is a fixed accessible reference.</strong><p>Its axes and gross faces are not finished parts. Return to the dome to isolate visual layers.</p><div><button type="button" onClick={() => selectDome()}>Open whole dome</button></div></section> : (
               <>
                 <section className="control-section layer-section" aria-labelledby="v3-layers-heading">
                   <div className="section-heading"><h2 id="v3-layers-heading">Visibility stack</h2><button type="button" onClick={() => setLayers({ timber: true, hubs: true, panels: true, dimensions: true, labels: true, ground: true })}>Show all</button></div>
@@ -496,17 +534,43 @@ export default function DomeHandoff3V() {
         {activePanel === "audit" ? (
           <aside className="schedule-panel workbench-drawer v3-audit-drawer" id="v3-audit-drawer" tabIndex={-1} aria-label="3V geometry audit and release boundary">
             <div className="panel-heading"><span>3V AUDIT · {PROJECT_3V.revision}</span><button type="button" onClick={closePanel} aria-label="Close 3V audit">×</button></div>
-            <div className="v3-audit-actions"><button type="button" onClick={exportCsv}>Node-center CSV · not cut list</button><button type="button" onClick={exportJson}>Download audit JSON</button></div>
+            <div className="v3-audit-actions">
+              <a
+                className="v3-audit-pdf-action"
+                href={PDF_PATH_3V}
+                download={PDF_DOWNLOAD_NAME_3V}
+                type="application/pdf"
+                aria-label="Download the 3V geometry and RFI field reference PDF. Not a fabrication or cut-list release."
+                onClick={() => notify("3V geometry + RFI field PDF downloaded · not a cut list")}
+              >
+                ↓ 3V field PDF · geometry + RFI
+              </a>
+              <button type="button" onClick={exportCsv}>Node-center CSV · not cut list</button>
+              <button type="button" onClick={exportJson}>Download audit JSON</button>
+            </div>
             <div className="v3-audit-scroll">
               {selectedMember ? <section className="v3-selected-member" aria-labelledby="v3-selected-title"><p>SELECTED UNIQUE AXIS</p><h2 id="v3-selected-title">{selectedMember.pieceId} · {selectedMember.length.toFixed(3)} in</h2><dl><div><dt>Class</dt><dd>{selectedMember.type}</dd></div><div><dt>Nodes</dt><dd>{selectedMember.start} → {selectedMember.end}</dd></div><div><dt>Status</dt><dd>Node-center chord · not a cut</dd></div></dl><button type="button" onClick={() => chooseMember(null)}>Clear selection</button></section> : null}
               <section className="v3-audit-intro"><p>CANONICAL GEOMETRY VERIFIED</p><h2>3V 5/8 centerline reference</h2><span>This is an independently generated mathematical mesh—not an engineering, joinery, panel-module, entrance, weatherproofing, or fabrication release.</span></section>
+              <section className="v3-construction-holds" aria-labelledby="v3-construction-holds-title">
+                <p>CONSTRUCTION PACKAGE · HOLD</p>
+                <h2 id="v3-construction-holds-title">Geometry passes. Physical construction does not.</h2>
+                <span>These unresolved items prevent a responsible cut list, assembly instruction, or occupancy claim.</span>
+                <ul>
+                  {CONSTRUCTION_HOLDS_3V.map((hold) => (
+                    <li key={hold.id}>
+                      <div><strong>{hold.label}</strong><b>{hold.status}</b></div>
+                      <small>{hold.detail}</small>
+                    </li>
+                  ))}
+                </ul>
+              </section>
               <div className="audit-overview v3-audit-overview">
                 <section><p>TOPOLOGY</p><h2>Triangulated disk</h2><dl><div><dt>Unique nodes</dt><dd>61</dd></div><div><dt>Unique axes</dt><dd>165</dd></div><div><dt>Triangular faces</dt><dd>105</dd></div><div><dt>Boundary edges</dt><dd>15</dd></div><div><dt>Euler check</dt><dd>61 − 165 + 105 = 1</dd></div><div><dt>Degree sum</dt><dd>330 = 2 × 165</dd></div><div><dt>Face incidences</dt><dd>315 = 2E − B</dd></div></dl></section>
                 <section><p>SCALE + ENVELOPE</p><h2>152 in boundary normalization</h2><dl><div><dt>Sphere radius</dt><dd>{DOME_MODEL_3V.sphereRadius.toFixed(6)} in</dd></div><div><dt>Parent sphere Ø</dt><dd>{(DOME_MODEL_3V.sphereRadius * 2).toFixed(6)} in</dd></div><div><dt>Low-tier rise</dt><dd>{DOME_MODEL_3V.peakHeight.toFixed(6)} in</dd></div><div><dt>Boundary ripple</dt><dd>{DOME_MODEL_3V.audit.boundary.rippleInches.toFixed(6)} in</dd></div><div><dt>Min boundary caliper</dt><dd>{DOME_MODEL_3V.audit.boundary.minimumCaliperSpanInches.toFixed(6)} in</dd></div><div><dt>Max mesh plan span</dt><dd>{DOME_MODEL_3V.audit.envelope.maximumMeshPlanSpanInches.toFixed(6)} in</dd></div></dl></section>
               </div>
               <section className="v3-data-section" aria-labelledby="v3-member-classes-title"><p>UNIQUE AXIS CLASSES</p><h2 id="v3-member-classes-title">A / B / C node-center chords</h2><div className="v3-class-table">{DOME_MODEL_3V.edgeClasses.map((edgeClass) => <div key={edgeClass.type}><strong>{edgeClass.type}</strong><span>{edgeClass.count} axes</span><b>{edgeClass.length.toFixed(6)} in</b><small>factor {edgeClass.chordFactor.toFixed(12)} R</small></div>)}</div></section>
               <section className="v3-data-section" aria-labelledby="v3-hub-classes-title"><p>NODE VALENCE</p><h2 id="v3-hub-classes-title">Locations—not designed connector blocks</h2><div className="v3-class-table">{DOME_MODEL_3V.hubClasses.map((hubClass) => <div key={hubClass.valence}><strong>H{hubClass.valence}</strong><span>{hubClass.count} locations</span><b>{hubClass.valence}-way topology</b><small>Joinery not modeled</small></div>)}</div></section>
-              <section className="v3-source-boundary"><p>PRIVATE SOURCE CROSS-CHECK</p><h2>The supplied plan is not republished here</h2><span>{SOURCE_PLAN_3V.licenseBoundary}</span><strong>{SOURCE_PLAN_3V.reconciliation}</strong></section>
+              <section className="v3-source-boundary"><p>PRIVATE SOURCE CROSS-CHECK</p><h2>The supplied plan is not republished here</h2><span>{SOURCE_PLAN_3V.licenseBoundary}</span><strong>{SOURCE_PLAN_3V.reconciliation}</strong><strong>{SOURCE_PLAN_3V.dimensionCrossCheck}</strong></section>
               <section className="v3-data-section" aria-labelledby="v3-release-title"><p>RELEASE BOUNDARY</p><h2 id="v3-release-title">What is—and is not—ready</h2><dl className="v3-release-list">{Object.entries(THREE_V_RELEASE_BOUNDARY).map(([label, value]) => <div key={label}><dt>{label.replace(/([A-Z])/g, " $1")}</dt><dd>{value}</dd></div>)}</dl></section>
               <section className="v3-data-section" aria-labelledby="v3-assumptions-title"><p>MODEL LIMITS</p><h2 id="v3-assumptions-title">Read before physical work</h2><ul>{MODEL_ASSUMPTIONS_3V.map((assumption) => <li key={assumption}>{assumption}</li>)}</ul></section>
             </div>

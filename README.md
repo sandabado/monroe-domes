@@ -8,6 +8,9 @@ The two models are intentionally isolated. The 2V entrance, platform, site,
 joinery, clearance study, and Rev 08 PDF do not transfer to the 3V option. The 3V
 route currently exposes independently generated centerline geometry, individual
 member axes, hubs, gross face families, orthographic views, parts, and an audit.
+Its separate printable download is a geometry + RFI field reference for taking
+verified dimensions and open questions into the field; it is not a fabrication
+drawing or cut list.
 
 ## Current release boundary
 
@@ -54,7 +57,9 @@ chord families are A × 30, B × 55, and C × 80. Hub valences are H4 × 15, H5 
 
 The number **315** is `3 × 105`: it counts triangular face-edge incidences, or
 three panel-frame sides per face. It is not the number of unique geodesic axes;
-that number is **165**. The 3V route does not issue finished cut lengths,
+that number is **165**. Its numerical agreement with the private source's
+reported panel-frame total is count-level reconciliation only; doorway-piece
+allocation remains unresolved. The 3V route does not issue finished cut lengths,
 joinery, an entrance, a pony wall, a platform, weather details, or structural
 capacity.
 
@@ -62,6 +67,10 @@ The commercial plan supplied privately for comparison remains private. No plan
 pages, artwork, prose, proprietary shop layouts, or plan PDF are embedded or
 redistributed by this project. Read the independent derivation and exact scope
 in [`docs/3V_5_8_GEOMETRY_INTAKE.md`](docs/3V_5_8_GEOMETRY_INTAKE.md).
+The matching printable geometry + RFI reference is
+[`public/downloads/black-belt-building-3v-geometry-field-reference-intake-01.pdf`](public/downloads/black-belt-building-3v-geometry-field-reference-intake-01.pdf).
+It carries the same construction holds and must not be used as a fabrication
+release, cut list, structural approval, or authorization to build.
 
 ## Run locally
 
@@ -84,6 +93,10 @@ npm run test:geometry
 npm test
 npm run build
 ```
+
+Regenerate the separate 3V geometry field-reference PDF with `npm run pdf:3v`.
+The command requires Python with `reportlab` and `pypdf`; set `PDF_PYTHON` when
+those packages are installed in a non-default interpreter.
 
 The default 2V interface separates:
 
